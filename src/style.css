@@ -139,6 +139,7 @@ details[open] { display: grid; gap: 8px; }
 .view-2d.dragging { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .overlay-tools { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; z-index: 2; }
 .overlay-tools button { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.overlay-tools button[hidden] { display: none; }
 .empty {
   position: absolute;
   inset: 0;
