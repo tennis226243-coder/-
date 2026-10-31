@@ -387,6 +387,7 @@ $('#image-input').addEventListener('change', (e) => {
   loadImageFromBlob(e.target.files[0]);
   e.target.value = '';
 });
+$('[data-action="sample"]').addEventListener('click', () => $('#load-sample').click());
 $('#load-sample').addEventListener('click', () => {
   setPlanImage(drawSamplePlan().toDataURL('image/png'), { scale: SAMPLE_SCALE, detect: true });
 });

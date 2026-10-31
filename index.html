@@ -19,6 +19,7 @@
         <button data-tool="pan" title="画面移動 (H)">移動<kbd>H</kbd></button>
       </div>
       <div class="actions">
+        <label class="file-btn primary" for="image-input" title="間取り図の画像を読み込む">画像を開く</label>
         <button id="undo" title="元に戻す (Ctrl+Z)">↶</button>
         <button id="redo" title="やり直す (Ctrl+Shift+Z)">↷</button>
         <div class="seg" role="group" aria-label="表示">
@@ -103,7 +104,11 @@
             <button id="fit-2d" title="全体表示">全体表示</button>
           </div>
           <div class="empty" id="empty-2d">
-            <p>間取り図の画像をここにドロップ<br />または左のパネルから読み込んでください</p>
+            <div class="empty-box">
+              <label class="file-btn primary big" for="image-input">間取り図の画像を選ぶ</label>
+              <button class="big" data-action="sample">サンプル間取りで試す</button>
+              <p>画像はここにドロップ・貼り付けでも読み込めます</p>
+            </div>
           </div>
         </div>
         <div class="view view-3d" id="view-3d">
