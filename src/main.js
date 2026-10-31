@@ -246,6 +246,7 @@ function renderSelection(sel) {
   const fields = $('#sel-fields');
   const item = sel && findItem(sel);
   panel.hidden = !item;
+  $('#delete-2d').hidden = !item;
   if (!item) return;
   fields.replaceChildren();
   const add = (label, value, onInput, attrs = {}) => {
@@ -379,6 +380,7 @@ $('#fit-2d').addEventListener('click', () => editor.fit());
 $('#fit-3d').addEventListener('click', () => viewer.fitView());
 $('#walk').addEventListener('click', () => viewer.setWalkMode(!viewer.walkMode));
 $('#sel-delete').addEventListener('click', () => editor.deleteSelection());
+$('#delete-2d').addEventListener('click', () => editor.deleteSelection());
 
 // ---------- 読み込み ----------
 $('#image-input').addEventListener('change', (e) => {
