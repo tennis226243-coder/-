@@ -150,6 +150,9 @@ details[open] { display: grid; gap: 8px; }
   text-align: center;
 }
 .empty[hidden] { display: none; }
+.empty-box { display: grid; gap: 10px; justify-items: center; padding: 16px; pointer-events: auto; }
+.empty-box p { margin: 0; font-size: 12px; }
+.big { min-height: 48px; min-width: 220px; font-size: 16px; }
 .walk-help {
   position: absolute;
   left: 50%;
@@ -191,7 +194,7 @@ dialog h3 { margin: 0 0 8px; }
   .tools kbd { display: none; }
   .actions { margin-left: 0; }
   .layout { grid-template-columns: 1fr; }
-  .views { order: -1; height: 65vh; }
+  .views { order: -1; height: 55vh; }
   .views[data-view="split"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   .panel { border-right: none; }
 }
