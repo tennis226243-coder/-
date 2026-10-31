@@ -414,19 +414,37 @@ function drawHeart(g, x, y, s) {
 }
 
 // ===== 外部イラスト（assets/characters/<id>.png があれば手描き風の描画より優先） =====
-const CHAR_IMG = {};
+const CHAR_IMG = {}, CHAR_BUST = {};
 for (const c of CHARACTERS) {
   const img = new Image();
-  img.onload = () => { CHAR_IMG[c.id] = img; };
+  img.onload = () => { CHAR_IMG[c.id] = img; CHAR_BUST[c.id] = makeBust(img, c); };
   img.src = `assets/characters/${c.id}.png`;
 }
 
-// 胴体つき立ち絵。drawChibi(body) とほぼ同じ範囲（幅約3.2s、y-1.8s〜y+2.6s）に収める
+// 全身画像から顔を中心に上半身（高さ bust の割合）を切り出し、下端をフェードさせた画像を作る
+function makeBust(img, c) {
+  const rate = c.bust || 1, fx = c.face ? c.face.x : 0.5;
+  const cv = document.createElement('canvas');
+  cv.height = Math.round(img.height * rate);
+  cv.width = Math.min(img.width, Math.round(cv.height * 0.8));
+  const sx = Math.max(0, Math.min(img.width - cv.width, img.width * fx - cv.width / 2));
+  const g = cv.getContext('2d');
+  g.drawImage(img, -sx, 0);
+  if (rate < 1) {
+    g.globalCompositeOperation = 'destination-out';
+    const fade = g.createLinearGradient(0, cv.height * 0.8, 0, cv.height);
+    fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+    g.fillStyle = fade; g.fillRect(0, cv.height * 0.8, cv.width, cv.height * 0.2);
+  }
+  return cv;
+}
+
+// 胴体つき立ち絵。drawChibi(body) とほぼ同じ範囲（y-1.8s〜y+2.6s）に収める。opt.full で全身
 function drawPortrait(g, c, x, y, s, opt = {}) {
-  const img = CHAR_IMG[c.id];
+  const img = opt.full ? CHAR_IMG[c.id] : CHAR_BUST[c.id];
   if (!img) { drawChibi(g, c, x, y, s, { ...opt, body: true }); return; }
-  const h = s * 4.4, w = h * img.width / img.height;
-  g.drawImage(img, x - w / 2, y - s * 1.8, w, h);
+  const h = s * (opt.full ? 5.2 : 4.4), w = h * img.width / img.height;
+  g.drawImage(img, x - w / 2, y - s * (opt.full ? 1.4 : 1.8), w, h);
 }
 
 // 丸アイコン用に顔のあたりを切り出す。face: { x, y, size }（画像幅に対する割合）

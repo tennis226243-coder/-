@@ -68,6 +68,7 @@ const CHARACTERS = [
     hp: 2200, atk: 450, abilities: ['crit'], link: 'chain',
     skill: { name: 'メイルストロム', turns: 5, kind: 'barrage', desc: '全ての敵に渦潮を叩きつける' },
     quote: 'この歌から、逃げられるかしら？',
+    face: { x: 0.53, y: 0.15, size: 0.3 }, bust: 0.5,
     look: { hair: '#30c8d0', hair2: '#c0fff8', eye: '#ff70c0', style: 'twin', acc: 'fin', mouth: 'smile', outfit: '#106080' } },
 ];
 const CHAR_BY_ID = Object.fromEntries(CHARACTERS.map(c => [c.id, c]));

@@ -74,6 +74,9 @@ OPENAI_API_KEY=... python3 tools/generate_art.py kagutsuchi amaterasu        # �
 
 - 結果は `assets/characters/candidates/<id>_openai.png` と `<id>_gemini.png` に保存
 - 気に入った方を `assets/characters/<id>.png` にコピーすれば反映
+- 白背景の画像（Gemini のチャット画面で作ったものなど）は、背景を透過して取り込める：
+  `python3 tools/cutout.py <画像> <キャラID> --holes`（`--holes` はキャラに囲まれた白い隙間も透過。白い服のキャラは外して試す）
+- `data.js` のキャラに `bust: 0.5`（全身画像の上何割を編成画面などで使うか）を指定すると上半身を切り出す。カットインは全身
 - 縦長（2:3）、背景は透過か白、顔が上 1/3 にある構図を想定。丸アイコンの切り抜き位置がずれる場合は
   `data.js` のキャラに `face: { x: 0.5, y: 0.28, size: 0.42 }`（画像に対する割合）を追加して調整
 - モデルは `OPENAI_IMAGE_MODEL` / `GEMINI_IMAGE_MODEL` で変更可

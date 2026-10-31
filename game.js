@@ -870,7 +870,7 @@ function drawCutin() {
   }
   // キャラクター
   const px = W + 160 - ease((t - 4) / 16) * 300 - t * 0.3;
-  drawPortrait(ctx, u, px, 270, 78, { t: frame });
+  drawPortrait(ctx, u, px, 270, 78, { t: frame, full: true });
   ctx.restore();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(-W + bandIn * W, 190); ctx.lineTo(bandIn * W * 2, 150); ctx.stroke();
