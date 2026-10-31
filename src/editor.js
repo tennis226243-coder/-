@@ -5,6 +5,7 @@ import {
 } from './model.js';
 
 const HIT_PX = 10; // 画面上のヒット判定半径
+const STROKE_ORTHO_DEG = 12; // なぞり描きで水平・垂直に揃える角度
 
 export class Editor2D {
   /**
@@ -113,10 +114,11 @@ export class Editor2D {
   get hitWorld() { return (this.isTouch ? HIT_PX * 2 : HIT_PX) / this.view.zoom; }
 
   /** 作図用のスナップ（端点 → 水平垂直） */
-  snapped(p, e, from) {
+  snapped(p, e, from, orthoDeg = this.drag?.kind === 'stroke' ? STROKE_ORTHO_DEG : 8) {
     const ep = snapToEndpoint(this.project.walls, p, this.hitWorld);
     if (ep) return { ...ep, snapped: true };
-    if (from && !e.shiftKey) return snapOrtho(from, p);
+    // なぞり描きは手ぶれがあるので、水平・垂直に揃える角度を広めにとる
+    if (from && !e.shiftKey) return snapOrtho(from, p, orthoDeg);
     return p;
   }
 
@@ -183,6 +185,13 @@ export class Editor2D {
       // 何もない所のドラッグは画面移動
       if (!hit) this.startPan(e);
       else this.startItemDrag(hit, p);
+    } else if (this.tool === 'wall') {
+      // 押したままなぞると壁を描く。動かさずに離したら従来どおり 1 点ずつの作図
+      const start = this.snapped(p, e, null);
+      this.drag = {
+        kind: 'stroke', sx: e.clientX, sy: e.clientY, p,
+        start: { x: start.x, y: start.y }, prevDraft: this.draft, active: false,
+      };
     } else if (this.isTouch) {
       // 指でのドラッグは画面移動、動かさずに離したらタップとして作図
       this.tap = { p };
@@ -200,7 +209,8 @@ export class Editor2D {
   startPinch() {
     // 1 本目の指で始めた操作は取り消してピンチに切り替える
     const d = this.drag;
-    if (d && d.kind !== 'pan') {
+    if (d?.kind === 'stroke') this.draft = d.prevDraft;
+    else if (d && d.kind !== 'pan') {
       if (d.moved) this.hooks.abortEdit?.();
       else this.hooks.cancelEdit?.();
     }
@@ -322,7 +332,12 @@ export class Editor2D {
     if (!this.isTouch || !this.tap) this.mouse = p;
     const d = this.drag;
     if (d) {
-      if (d.kind === 'pan') {
+      if (d.kind === 'stroke') {
+        if (!d.active && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 8) {
+          d.active = true;
+          this.draft = { from: d.start };
+        }
+      } else if (d.kind === 'pan') {
         const mx = e.clientX - d.sx;
         const my = e.clientY - d.sy;
         // 少しでも動いたらタップではなくスクロール扱い
@@ -386,10 +401,34 @@ export class Editor2D {
     }
     const d = this.drag;
     this.drag = null;
+    if (d?.kind === 'stroke') {
+      this.finishStroke(d, e, cancelled);
+      return;
+    }
     if (d && d.kind !== 'pan') {
       if (d.moved) this.hooks.changed();
       else this.hooks.cancelEdit?.();
       this.hooks.selectionChanged?.(this.selection);
+    }
+    this.render();
+  }
+
+  /** なぞり描きの終了：始点から離した点まで壁を 1 本作る */
+  finishStroke(d, e, cancelled) {
+    if (cancelled) {
+      this.draft = d.prevDraft;
+    } else if (!d.active) {
+      this.draft = d.prevDraft;
+      this.applyTool(d.p, e);
+    } else {
+      const q = this.snapped(this.toWorld(e), e, d.start, STROKE_ORTHO_DEG);
+      this.draft = null;
+      if (dist(d.start, q) * this.view.zoom > 8) {
+        const pr = this.project;
+        this.hooks.beginEdit();
+        pr.walls.push({ id: uid('w'), a: { ...d.start }, b: { x: q.x, y: q.y }, thickness: pr.wallThickness });
+        this.hooks.changed();
+      }
     }
     this.render();
   }
@@ -571,7 +610,7 @@ export class Editor2D {
     const m = this.mouse;
     if (!m) return;
 
-    if ((this.tool === 'wall' || this.tool === 'calibrate') && !this.drag) {
+    if ((this.tool === 'wall' || this.tool === 'calibrate') && (!this.drag || this.drag.kind === 'stroke')) {
       const from = this.draft?.from;
       const q = this.snapped(m, { shiftKey: false }, from);
       if (q.snapped) this.handle(q, '#16a34a');
@@ -681,7 +720,7 @@ export class Editor2D {
 
 const TOOL_HINTS = {
   select: 'クリック（タップ）で選択、選択した物をドラッグで移動・端点で伸縮、Delete で削除。空き場所のドラッグで画面移動',
-  wall: 'クリック（タップ）で壁を連続作図。最後の点をもう一度押す / 右クリック / Esc で終了（Shift で角度自由）',
+  wall: '指（マウス）でなぞると壁を描けます。クリック（タップ）で 1 点ずつの連続作図もでき、最後の点をもう一度押す / Esc で終了（Shift で角度自由）。画面移動は 2 本指',
   door: '壁の上をクリック（タップ）してドアを配置',
   window: '壁の上をクリック（タップ）して窓を配置',
   room: 'クリック（タップ）で頂点を追加、始点を押す / Enter で部屋を確定',
