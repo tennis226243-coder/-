@@ -116,6 +116,16 @@ export class Viewer3D {
       color: 0xbfdcf0, roughness: 0.05, transparent: true, opacity: 0.35, depthWrite: false,
     });
 
+    // 案の比較用：変更のあった壁を色分けし、撤去した壁を半透明で表示する
+    const highlightMats = new Map();
+    const highlightMat = (color) => {
+      if (!highlightMats.has(color)) {
+        highlightMats.set(color, new THREE.MeshStandardMaterial({ color, roughness: 0.7, emissive: color, emissiveIntensity: 0.25 }));
+      }
+      return highlightMats.get(color);
+    };
+    const highlight = opts.highlightWalls ?? new Map();
+
     const walls = new THREE.Group();
     walls.name = 'Walls';
     const fixtures = new THREE.Group();
@@ -136,8 +146,9 @@ export class Viewer3D {
         const s1 = seg.s1 >= L - 1e-9 ? L + t / 2 : seg.s1;
         const h = seg.top - seg.bottom;
         if (h <= 1e-6 || s1 - s0 <= 1e-6) continue;
+        const mat = highlight.has(wall.id) ? highlightMat(highlight.get(wall.id)) : wallMat;
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(s1 - s0, h, t), [
-          wallMat, wallMat, capMat, wallMat, wallMat, wallMat,
+          mat, mat, capMat, mat, mat, mat,
         ]);
         mesh.position.copy(at((s0 + s1) / 2, (seg.top + seg.bottom) / 2));
         mesh.rotation.y = angle;
@@ -185,6 +196,23 @@ export class Viewer3D {
           g.add(glass);
         }
         fixtures.add(g);
+      }
+    }
+
+    if (opts.ghostWalls?.length) {
+      const ghostMat = new THREE.MeshStandardMaterial({
+        color: opts.ghostColor ?? 0xe11d48, transparent: true, opacity: 0.28, depthWrite: false,
+      });
+      for (const wall of opts.ghostWalls) {
+        const a = P(wall.a);
+        const v = P(wall.b).sub(a);
+        const L = v.length();
+        if (L < 1e-6) continue;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(L + wall.thickness, project.wallHeight, wall.thickness), ghostMat);
+        mesh.position.copy(a.addScaledVector(v, 0.5).setY(project.wallHeight / 2));
+        mesh.rotation.y = -Math.atan2(v.z, v.x);
+        mesh.name = `Removed_${wall.id}`;
+        fixtures.add(mesh);
       }
     }
 

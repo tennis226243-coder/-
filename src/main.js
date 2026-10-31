@@ -3,11 +3,15 @@ import { detectWalls, findOpenings } from './autodetect.js';
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
 import { drawSamplePlan, SAMPLE_SCALE } from './sample.js';
+import {
+  ensureVariants, syncActive, switchVariant, addVariant, removeVariant, renameVariant,
+  variantProject, diffLayouts, summarize,
+} from './variants.js';
 
 const $ = (sel) => document.querySelector(sel);
 const STORAGE_KEY = 'madori3d.project';
 
-let project = loadAutosave() ?? createProject();
+let project = ensureVariants(loadAutosave() ?? createProject());
 const undoStack = [];
 const redoStack = [];
 let pending = null;
@@ -45,7 +49,7 @@ function snapshot() {
   return { json: JSON.stringify({ ...project, image: null }), image: project.image };
 }
 function restore(s) {
-  project = { ...JSON.parse(s.json), image: s.image };
+  project = ensureVariants({ ...JSON.parse(s.json), image: s.image });
 }
 function pushUndo(s) {
   undoStack.push(s);
@@ -90,6 +94,8 @@ function refresh({ live = false } = {}) {
   }
   if (!live) {
     renderSelection(editor.selection);
+    renderVariants();
+    if ($('.views').dataset.view === 'compare') updateCompare();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(autosave, 400);
   }
@@ -357,6 +363,7 @@ for (const b of document.querySelectorAll('[data-tool]')) {
 function setView(mode) {
   $('.views').dataset.view = mode;
   for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('active', b.dataset.view === mode);
+  if (mode === 'compare') requestAnimationFrame(() => updateCompare());
 }
 for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
 
@@ -417,6 +424,7 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 $('#save-json').addEventListener('click', () => {
+  syncActive(project);
   download(new Blob([JSON.stringify(project)], { type: 'application/json' }), 'madori.json');
 });
 $('#open-json').addEventListener('change', (e) => {
@@ -425,7 +433,7 @@ $('#open-json').addEventListener('change', (e) => {
 });
 async function openProjectFile(file) {
   try {
-    const data = normalizeProject(JSON.parse(await file.text()));
+    const data = ensureVariants(normalizeProject(JSON.parse(await file.text())));
     edit(() => { project = data; });
     afterRestore();
     viewer.hasFitted = false;
@@ -450,11 +458,12 @@ $('#export-png').addEventListener('click', async () => {
 });
 $('#clear-all').addEventListener('click', () => {
   if (!confirm('画像・壁・部屋をすべて消去します。よろしいですか？')) return;
-  edit(() => { project = createProject(); });
+  edit(() => { project = ensureVariants(createProject()); });
   afterRestore();
 });
 
 function autosave() {
+  syncActive(project);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
   } catch {
@@ -474,6 +483,157 @@ function loadAutosave() {
 const round2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// ---------- リノベーション案 ----------
+function renderVariants() {
+  const list = $('#variant-list');
+  list.replaceChildren();
+  for (const v of project.variants) {
+    const li = document.createElement('li');
+    const name = document.createElement('button');
+    name.className = 'v-name';
+    name.textContent = v.name;
+    name.title = 'この案に切り替えて編集';
+    name.classList.toggle('active', v.id === project.activeVariant);
+    name.addEventListener('click', () => {
+      if (v.id === project.activeVariant) return;
+      edit(() => switchVariant(project, v.id));
+      editor.select(null);
+      syncInputs();
+      setStatus(`「${v.name}」を編集中`);
+    });
+    const rename = document.createElement('button');
+    rename.className = 'v-icon';
+    rename.textContent = '名前';
+    rename.title = '名前を変更';
+    rename.addEventListener('click', () => {
+      const n = prompt('案の名前', v.name)?.trim();
+      if (n) edit(() => renameVariant(project, v.id, n));
+    });
+    const del = document.createElement('button');
+    del.className = 'v-icon danger';
+    del.textContent = '削除';
+    del.title = 'この案を削除';
+    del.disabled = project.variants.length <= 1;
+    del.addEventListener('click', () => {
+      if (!confirm(`「${v.name}」を削除しますか？`)) return;
+      edit(() => removeVariant(project, v.id));
+      editor.select(null);
+      syncInputs();
+    });
+    li.append(name, rename, del);
+    list.append(li);
+  }
+}
+
+$('#variant-add').addEventListener('click', () => {
+  const n = prompt('新しい案の名前（今の案を複製します）', `案${String.fromCharCode(64 + project.variants.length)}`)?.trim();
+  if (!n) return;
+  edit(() => addVariant(project, n));
+  editor.select(null);
+  setStatus(`「${n}」を作成しました。壁の撤去・追加などを行い、「案を比較」で確認できます`);
+});
+$('#variant-compare').addEventListener('click', () => {
+  if (project.variants.length < 2) {
+    setStatus('比較するには「＋ 案を複製」で 2 つ以上の案を作ってください');
+    return;
+  }
+  setView('compare');
+  // スマホではパネルが下にあるので、比較画面の先頭までスクロールする
+  $('.views').scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+
+let cmp = null;
+function ensureCompareViewers() {
+  if (cmp) return cmp;
+  cmp = { a: new Viewer3D($('#cmp-3d-a')), b: new Viewer3D($('#cmp-3d-b')) };
+  // 視点を連動させる
+  let syncing = false;
+  const link = (src, dst) => src.orbit.addEventListener('change', () => {
+    if (syncing) return;
+    syncing = true;
+    dst.camera.position.copy(src.camera.position);
+    dst.orbit.target.copy(src.orbit.target);
+    dst.orbit.update();
+    syncing = false;
+  });
+  link(cmp.a, cmp.b);
+  link(cmp.b, cmp.a);
+  for (const id of ['#cmp-a', '#cmp-b']) $(id).addEventListener('change', () => updateCompare());
+  return cmp;
+}
+
+function updateCompare() {
+  if ($('.views').dataset.view !== 'compare') return;
+  const { a, b } = ensureCompareViewers();
+  const ids = project.variants.map((v) => v.id);
+  const selA = $('#cmp-a');
+  const selB = $('#cmp-b');
+  // 初期値：比較元は最初の案（現状）、比較先は編集中の案（同じなら 2 番目）
+  const prevA = ids.includes(selA.value) ? selA.value : ids[0];
+  let prevB = ids.includes(selB.value) ? selB.value : project.activeVariant;
+  if (prevB === prevA && ids.length > 1) prevB = ids.find((id) => id !== prevA);
+  for (const sel of [selA, selB]) {
+    sel.replaceChildren(...project.variants.map((v) => new Option(v.name, v.id)));
+  }
+  selA.value = prevA;
+  selB.value = prevB;
+
+  const pa = variantProject(project, prevA);
+  const pb = variantProject(project, prevB);
+  const d = diffLayouts(pa, pb);
+  const opts = viewOptions();
+  a.update(pa, { ...opts, highlightWalls: new Map([...d.removedWalls].map((id) => [id, '#e11d48'])), ghostWalls: [] });
+  b.update(pb, {
+    ...opts,
+    highlightWalls: new Map([...d.addedWalls].map((id) => [id, '#16a34a'])),
+    ghostWalls: pa.walls.filter((w) => d.removedWalls.has(w.id)),
+  });
+  renderCompareSummary(pa, pb, d);
+}
+
+function renderCompareSummary(pa, pb, d) {
+  const sa = summarize(pa, project.scale);
+  const sb = summarize(pb, project.scale);
+  const nameA = $('#cmp-a').selectedOptions[0]?.text ?? '';
+  const nameB = $('#cmp-b').selectedOptions[0]?.text ?? '';
+  // 部屋が描かれていない場合は面積の行を出さない
+  const roomRows = sa.rooms + sb.rooms ? [
+    ['部屋数', sa.rooms, sb.rooms, (v) => v],
+    ['延床（部屋の合計）', sa.area, sb.area, (v) => `${v.toFixed(1)}㎡`],
+  ] : [];
+  const rows = [
+    ...roomRows,
+    ['壁の本数', sa.walls, sb.walls, (v) => v],
+    ['壁の総延長', sa.wallLength, sb.wallLength, (v) => `${v.toFixed(1)}m`],
+    ['ドア', sa.doors, sb.doors, (v) => v],
+    ['窓', sa.windows, sb.windows, (v) => v],
+  ];
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  for (const t of ['', nameA, nameB, '差']) head.append(Object.assign(document.createElement('th'), { textContent: t }));
+  const body = table.createTBody();
+  for (const [label, va, vb, fmt] of rows) {
+    const r = body.insertRow();
+    const delta = vb - va;
+    const deltaText = Math.abs(delta) < 1e-9 ? '±0' : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))}`;
+    r.insertCell().textContent = label;
+    r.insertCell().textContent = fmt(va);
+    r.insertCell().textContent = fmt(vb);
+    const c = r.insertCell();
+    c.textContent = deltaText;
+    if (Math.abs(delta) > 1e-9) c.className = delta > 0 ? 'up' : 'down';
+  }
+  const removed = pa.walls.filter((w) => d.removedWalls.has(w.id) && !pb.walls.some((x) => x.id === w.id)).length;
+  const added = pb.walls.filter((w) => d.addedWalls.has(w.id) && !pa.walls.some((x) => x.id === w.id)).length;
+  const moved = d.addedWalls.size - added;
+  const note = document.createElement('p');
+  note.className = 'changes';
+  note.textContent = d.removedWalls.size + d.addedWalls.size + d.removedOpenings.size + d.addedOpenings.size
+    ? `変更点：壁の撤去 ${removed} 本・新設 ${added} 本・移動/変更 ${moved} 本、ドア・窓の変更 ${new Set([...d.removedOpenings, ...d.addedOpenings]).size} 箇所`
+    : '変更点はありません（比較先の案で壁の撤去・追加などを行ってください）';
+  $('#cmp-summary').replaceChildren(table, note);
+}
+
 // ---------- 起動 ----------
 syncInputs();
 syncImage();
@@ -487,4 +647,4 @@ setStatus(project.walls.length || project.image
   : '間取り図の画像を読み込むか、「サンプル間取りで試す」を押してください');
 
 // テスト・デバッグ用
-window.madori = { get project() { return project; }, editor, viewer };
+window.madori = { get project() { return project; }, editor, viewer, get compare() { return cmp; } };

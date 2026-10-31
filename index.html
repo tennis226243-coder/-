@@ -26,6 +26,7 @@
           <button data-view="2d">2D</button>
           <button data-view="split">分割</button>
           <button data-view="3d">3D</button>
+          <button data-view="compare" title="リノベーション案を3Dで並べて比較">比較</button>
         </div>
       </div>
     </header>
@@ -63,6 +64,16 @@
             <label class="check"><input type="checkbox" id="detect-replace" checked /> 既存の壁を置き換える</label>
           </details>
           <p class="hint">検出後は「壁」「ドア」「窓」「部屋」ツールで修正・追加できます。</p>
+        </section>
+
+        <section>
+          <h2>4. リノベーション案</h2>
+          <ul class="variant-list" id="variant-list"></ul>
+          <div class="grid2">
+            <button id="variant-add">＋ 案を複製</button>
+            <button id="variant-compare" class="primary">案を比較</button>
+          </div>
+          <p class="hint">今の案を複製してから壁の撤去・追加などを行い、「案を比較」で改装前後を 3D で並べて確認できます。</p>
         </section>
 
         <section id="selection-panel" hidden>
@@ -117,6 +128,23 @@
             <button id="walk">ウォークスルー</button>
           </div>
           <div class="walk-help" id="walk-help" hidden>W A S D で移動 / マウスで視点 / Shift で早歩き / Esc で終了</div>
+        </div>
+        <div class="view view-compare" id="view-compare">
+          <div class="cmp-pane">
+            <div class="cmp-head">
+              <select id="cmp-a" aria-label="比較元の案"></select>
+              <span class="legend"><i class="sw removed"></i>撤去・変更する壁</span>
+            </div>
+            <div class="cmp-3d" id="cmp-3d-a"></div>
+          </div>
+          <div class="cmp-pane">
+            <div class="cmp-head">
+              <select id="cmp-b" aria-label="比較先の案"></select>
+              <span class="legend"><i class="sw added"></i>新設・変更 <i class="sw ghost"></i>撤去</span>
+            </div>
+            <div class="cmp-3d" id="cmp-3d-b"></div>
+          </div>
+          <div class="cmp-summary" id="cmp-summary"></div>
         </div>
       </main>
     </div>
