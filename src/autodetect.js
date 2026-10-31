@@ -2,9 +2,10 @@
 //
 // 手順:
 //  1. 画像をセル単位に縮小し、暗い画素の多いセルを「黒」とする二値化
-//  2. モルフォロジー・オープニング（収縮→膨張）で細い線・文字・ドアの弧を除去
-//  3. 水平方向・垂直方向それぞれで長いランを抽出し、行（列）をまたいで矩形に統合
-//  4. 矩形を中心線＋厚みの壁に変換し、同一直線上の壁を統合、交点に端点をスナップ
+//  2. クロージングで壁内の白抜けを埋め、オープニング（収縮→膨張）で細い線・文字・ドアの弧を除去
+//  3. 水平方向・垂直方向それぞれで「長いランに属するセル」だけを残し、連結成分ごとに 1 本の壁とする
+//     （JPEG のにじみや輪郭のギザギザがあっても成分としてまとまるので途切れにくい）
+//  4. 成分を中心線＋厚みの壁に変換し、同一直線上の壁を統合、交点に端点をスナップ
 
 /**
  * @param {{data: Uint8ClampedArray, width: number, height: number}} img
@@ -27,29 +28,28 @@ export function detectWalls(img, opts = {}) {
   const gh = Math.ceil(height / cell);
 
   let grid = binarize(img, cell, gw, gh, threshold);
+  // 画素単位のときはクロージングで壁の中の 1〜2px の白抜け（JPEG ノイズ等）を埋める。
+  // セルが 2px 以上なら二値化の平均で吸収されるので行わない（窓記号の平行線を潰さないため）
+  if (cell === 1) grid = erode(dilate(grid, gw, gh, 1), gw, gh, 1);
+  // オープニングで細い線・文字を除去する
   const r = Math.max(1, Math.floor(minThickness / cell / 2));
   grid = dilate(erode(grid, gw, gh, r), gw, gh, r);
 
   const minLenCells = Math.max(2, Math.round(minLength / cell));
   const minThickCells = Math.max(1, Math.round((minThickness * 0.8) / cell));
 
-  const hRects = extractRects(grid, gw, gh, minLenCells, false);
-  const vRects = extractRects(grid, gw, gh, minLenCells, true);
-
   const walls = [];
-  for (const rc of hRects) {
-    const w = rc.x1 - rc.x0;
-    const h = rc.y1 - rc.y0;
-    if (h < minThickCells || w < h * 1.5) continue;
-    const y = ((rc.y0 + rc.y1) / 2) * cell;
-    walls.push({ dir: 'h', c: y, s0: rc.x0 * cell, s1: rc.x1 * cell, t: h * cell });
-  }
-  for (const rc of vRects) {
-    const w = rc.x1 - rc.x0;
-    const h = rc.y1 - rc.y0;
-    if (w < minThickCells || h < w * 1.5) continue;
-    const x = ((rc.x0 + rc.x1) / 2) * cell;
-    walls.push({ dir: 'v', c: x, s0: rc.y0 * cell, s1: rc.y1 * cell, t: w * cell });
+  for (const vertical of [false, true]) {
+    const mask = directionalMask(grid, gw, gh, minLenCells, vertical);
+    for (const cp of components(mask, gw, gh)) {
+      const len = vertical ? cp.maxY - cp.minY + 1 : cp.maxX - cp.minX + 1;
+      const thick = cp.count / len; // 平均の厚み（ギザギザの影響を受けにくい）
+      if (thick < minThickCells || len < thick * 1.5) continue;
+      const c = ((vertical ? cp.sumX : cp.sumY) / cp.count + 0.5) * cell;
+      walls.push(vertical
+        ? { dir: 'v', c, s0: cp.minY * cell, s1: (cp.maxY + 1) * cell, t: thick * cell }
+        : { dir: 'h', c, s0: cp.minX * cell, s1: (cp.maxX + 1) * cell, t: thick * cell });
+    }
   }
 
   const merged = mergeCollinear(walls, cell * 2);
@@ -115,55 +115,55 @@ function morph(grid, gw, gh, r, isErode) {
 export const erode = (g, gw, gh, r) => morph(g, gw, gh, r, true);
 export const dilate = (g, gw, gh, r) => morph(g, gw, gh, r, false);
 
-/**
- * 長いランを行方向に連結して矩形化する。vertical=true なら列方向で処理。
- * 返り値は常に元の座標系 (x0,y0)-(x1,y1)（終端は排他的）
- */
-function extractRects(grid, gw, gh, minLen, vertical) {
-  const rows = vertical ? gw : gh;
-  const cols = vertical ? gh : gw;
-  const at = (row, col) => (vertical ? grid[col * gw + row] : grid[row * gw + col]);
-  const tol = 1;
-  const done = [];
-  let active = [];
-
-  for (let row = 0; row <= rows; row++) {
-    const runs = [];
-    if (row < rows) {
-      let start = -1;
-      for (let col = 0; col <= cols; col++) {
-        const on = col < cols && at(row, col);
-        if (on && start < 0) start = col;
-        if (!on && start >= 0) {
-          if (col - start >= minLen) runs.push({ c0: start, c1: col });
-          start = -1;
-        }
+/** 指定方向のランの長さが minLen 以上のセルだけを残したマスク */
+function directionalMask(grid, gw, gh, minLen, vertical) {
+  const mask = new Uint8Array(grid.length);
+  const lines = vertical ? gw : gh;
+  const len = vertical ? gh : gw;
+  const idx = (line, k) => (vertical ? k * gw + line : line * gw + k);
+  for (let line = 0; line < lines; line++) {
+    let start = -1;
+    for (let k = 0; k <= len; k++) {
+      const on = k < len && grid[idx(line, k)];
+      if (on && start < 0) start = k;
+      if (!on && start >= 0) {
+        if (k - start >= minLen) for (let j = start; j < k; j++) mask[idx(line, j)] = 1;
+        start = -1;
       }
     }
-    const next = [];
-    for (const run of runs) {
-      const idx = active.findIndex(
-        (a) => Math.abs(a.c0 - run.c0) <= tol && Math.abs(a.c1 - run.c1) <= tol,
-      );
-      if (idx >= 0) {
-        const a = active.splice(idx, 1)[0];
-        a.r1 = row + 1;
-        a.c0 = Math.min(a.c0, run.c0);
-        a.c1 = Math.max(a.c1, run.c1);
-        next.push(a);
-      } else {
-        next.push({ ...run, r0: row, r1: row + 1 });
-      }
-    }
-    done.push(...active);
-    active = next;
   }
+  return mask;
+}
 
-  return done.map((a) =>
-    vertical
-      ? { x0: a.r0, x1: a.r1, y0: a.c0, y1: a.c1 }
-      : { x0: a.c0, x1: a.c1, y0: a.r0, y1: a.r1 },
-  );
+/** 4 近傍の連結成分ごとの外接矩形・画素数・重心用の和 */
+function components(mask, gw, gh) {
+  const seen = new Uint8Array(mask.length);
+  const stack = [];
+  const out = [];
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i] || seen[i]) continue;
+    const cp = { minX: Infinity, minY: Infinity, maxX: -1, maxY: -1, count: 0, sumX: 0, sumY: 0 };
+    seen[i] = 1;
+    stack.push(i);
+    while (stack.length) {
+      const j = stack.pop();
+      const x = j % gw;
+      const y = (j - x) / gw;
+      cp.count++;
+      cp.sumX += x;
+      cp.sumY += y;
+      if (x < cp.minX) cp.minX = x;
+      if (x > cp.maxX) cp.maxX = x;
+      if (y < cp.minY) cp.minY = y;
+      if (y > cp.maxY) cp.maxY = y;
+      if (x > 0 && mask[j - 1] && !seen[j - 1]) { seen[j - 1] = 1; stack.push(j - 1); }
+      if (x < gw - 1 && mask[j + 1] && !seen[j + 1]) { seen[j + 1] = 1; stack.push(j + 1); }
+      if (y > 0 && mask[j - gw] && !seen[j - gw]) { seen[j - gw] = 1; stack.push(j - gw); }
+      if (y < gh - 1 && mask[j + gw] && !seen[j + gw]) { seen[j + gw] = 1; stack.push(j + gw); }
+    }
+    out.push(cp);
+  }
+  return out;
 }
 
 /** 同じ向き・ほぼ同じ中心線で、重なる/接する壁を統合 */
@@ -288,6 +288,10 @@ export function findOpenings(walls, img, opts = {}) {
         const t = Math.max(o.t, cur.t);
         const gap = o.s0 - cur.s1 - t;
         if (gap < t * minRatio || gap > t * maxRatio) continue;
+        // 隙間を横切る直交壁があれば、別の部屋の壁なので繋げない
+        const crossed = lines.some((p) => p.h !== cur.h && p.c > cur.s1 && p.c < o.s0 &&
+          p.s0 - p.t / 2 <= cur.c && p.s1 + p.t / 2 >= cur.c);
+        if (crossed) continue;
         if (!best || o.s0 < lines[best].s0) best = j;
       }
       if (best !== null) {

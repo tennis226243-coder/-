@@ -93,3 +93,39 @@ test('隙間を挟む壁を統合し、窓記号のある隙間は窓・空の�
   assert.ok(Math.abs(center(byType.door) - 370) <= 3, `door center ${center(byType.door)}`);
   assert.ok(Math.abs(byType.door.widthPx - 80) <= 3);
 });
+
+test('輪郭がギザギザでノイズのある壁（JPEG 風）でも途切れずに検出する', () => {
+  const { img, fill } = makeImage(600, 400);
+  // 疑似乱数（再現性のため固定シード）
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  // 各列/行で ±1px 揺れる厚さ 8px の壁
+  for (let x = 50; x < 550; x++) fill(x, 46 + Math.round(rnd() * 2 - 1), x + 1, 54 + Math.round(rnd() * 2 - 1), 40);
+  for (let x = 50; x < 550; x++) fill(x, 346 + Math.round(rnd() * 2 - 1), x + 1, 354 + Math.round(rnd() * 2 - 1), 40);
+  for (let y = 50; y < 350; y++) fill(46 + Math.round(rnd() * 2 - 1), y, 54 + Math.round(rnd() * 2 - 1), y + 1, 40);
+  for (let y = 50; y < 350; y++) fill(546 + Math.round(rnd() * 2 - 1), y, 554 + Math.round(rnd() * 2 - 1), y + 1, 40);
+  // 塩胡椒ノイズ
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.floor(rnd() * 600);
+    const y = Math.floor(rnd() * 400);
+    fill(x, y, x + 1, y + 1, rnd() < 0.5 ? 0 : 255);
+  }
+  const walls = detectWalls(img, { minThickness: 5 });
+  assert.equal(walls.length, 4, JSON.stringify(walls));
+  for (const w of walls) {
+    const len = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y);
+    assert.ok(len > 290, `wall too short: ${len}`);
+  }
+});
+
+test('直交する壁をまたいで隙間を繋がない', async () => {
+  const { findOpenings } = await import('../src/autodetect.js');
+  const { img, fill } = makeImage(500, 300);
+  // 左右の部屋の上壁は同一直線上だが、間に縦の壁がある（上壁は 150..250 で途切れている）
+  fill(50, 95, 150, 105);
+  fill(250, 95, 450, 105);
+  fill(195, 60, 205, 250); // 隙間を横切る縦壁
+  const walls = detectWalls(img, { minThickness: 6 });
+  const r = findOpenings(walls, img);
+  assert.equal(r.openings.length, 0);
+});
