@@ -149,21 +149,42 @@ export function normalizeProject(data) {
     throw new Error('間取りデータの形式が正しくありません');
   }
   const base = createProject();
-  const num = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
+  const project = {
+    ...base,
+    scale: positive(data.scale, base.scale),
+    image: data.image?.dataUrl ? data.image : null,
+    ...normalizeLayout(data),
+  };
+  // リノベーション案（各案はレイアウト部分だけを持つ）
+  if (Array.isArray(data.variants)) {
+    const variants = data.variants
+      .filter((v) => v && Array.isArray(v.walls))
+      .map((v) => ({ id: String(v.id ?? uid('v')), name: String(v.name || '案'), ...normalizeLayout(v) }));
+    if (variants.length) {
+      project.variants = variants;
+      const active = String(data.activeVariant);
+      project.activeVariant = variants.some((v) => v.id === active) ? active : variants[0].id;
+    }
+  }
+  return project;
+}
+
+const positive = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
+
+/** 壁・開口部・部屋・高さ・壁厚の正規化 */
+function normalizeLayout(data) {
+  const base = createProject();
   const pt = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
-  const walls = data.walls.map((w) => ({
+  const walls = (data.walls ?? []).map((w) => ({
     id: String(w.id ?? uid('w')),
     a: pt(w.a),
     b: pt(w.b),
-    thickness: num(w.thickness, base.wallThickness),
+    thickness: positive(w.thickness, base.wallThickness),
   }));
   const wallIds = new Set(walls.map((w) => w.id));
   return {
-    ...base,
-    scale: num(data.scale, base.scale),
-    wallHeight: num(data.wallHeight, base.wallHeight),
-    wallThickness: num(data.wallThickness, base.wallThickness),
-    image: data.image?.dataUrl ? data.image : null,
+    wallHeight: positive(data.wallHeight, base.wallHeight),
+    wallThickness: positive(data.wallThickness, base.wallThickness),
     walls,
     openings: (data.openings ?? [])
       .filter((o) => wallIds.has(String(o.wallId)))
@@ -175,8 +196,8 @@ export function normalizeProject(data) {
           wallId: String(o.wallId),
           t: Math.max(0, Math.min(1, Number(o.t) || 0.5)),
           type,
-          width: num(o.width, d.width),
-          height: num(o.height, d.height),
+          width: positive(o.width, d.width),
+          height: positive(o.height, d.height),
           sill: Number.isFinite(o.sill) && o.sill >= 0 ? o.sill : d.sill,
         };
       }),
