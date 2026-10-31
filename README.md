@@ -44,6 +44,12 @@ npm test         # 単体テスト（壁検出・幾何計算）
 npm run build    # dist/ に静的ファイルを出力（GitHub Pages などにそのまま配置可能）
 ```
 
+### GitHub Pages で公開
+
+`main` ブランチに push すると、GitHub Actions（`.github/workflows/deploy.yml`）がテスト・ビルドを行い GitHub Pages に公開します。
+初回のみ、リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。
+公開 URL は `https://<ユーザー名>.github.io/<リポジトリ名>/` です（Actions タブからの手動実行も可能）。
+
 ### 構成
 
 | ファイル | 役割 |
