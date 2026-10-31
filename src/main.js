@@ -18,6 +18,12 @@ const editor = new Editor2D($('#plan-canvas'), {
   getProject: () => project,
   beginEdit: () => { pending = snapshot(); },
   cancelEdit: () => { pending = null; },
+  abortEdit: () => {
+    if (!pending) return;
+    restore(pending);
+    pending = null;
+    refresh();
+  },
   changed: ({ live } = {}) => {
     if (!live && pending) {
       pushUndo(pending);
@@ -205,6 +211,8 @@ function runDetection(img = editor.image) {
     }
   });
   viewer.hasFitted = false;
+  // 2D だけの表示だと 3D 化されたことに気付きにくいので分割表示にする
+  if (found.length && $('.views').dataset.view === '2d') setView('split');
   setStatus(found.length
     ? `壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所を検出しました。ツールで修正・追加できます`
     : '壁を検出できませんでした。詳細設定の明るさ・壁厚を調整してください');

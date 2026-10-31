@@ -12,6 +12,8 @@ export class Editor2D {
    * @param {object} hooks
    *   getProject(): project
    *   beginEdit(): 変更前に呼ばれる（履歴保存用）
+ *   cancelEdit(): 変更がなかった
+ *   abortEdit(): 途中までの変更を元に戻す
    *   changed(): 変更後に呼ばれる
    *   selectionChanged(sel)
    *   calibrate(pxLength)
@@ -29,11 +31,21 @@ export class Editor2D {
     this.drag = null;
     this.image = null;
     this.spaceDown = false;
+    this.pointers = new Map(); // タッチ中の指（ピンチ操作用）
+    this.pinch = null;
+    this.tap = null; // タッチでの作図はタップ（指を離した時）で確定する
+    this.isTouch = false;
 
     canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     canvas.addEventListener('pointermove', (e) => this.onMove(e));
     canvas.addEventListener('pointerup', (e) => this.onUp(e));
-    canvas.addEventListener('pointerleave', () => { this.mouse = null; this.render(); });
+    canvas.addEventListener('pointercancel', (e) => this.onUp(e, true));
+    canvas.addEventListener('pointerleave', (e) => {
+      // 指を離すと leave が来るが、作図中のプレビューは残す
+      if (e.pointerType === 'touch') return;
+      this.mouse = null;
+      this.render();
+    });
     canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); this.finishDraft(); });
@@ -98,7 +110,7 @@ export class Editor2D {
       y: (e.clientY - r.top - this.view.y) / this.view.zoom,
     };
   }
-  get hitWorld() { return HIT_PX / this.view.zoom; }
+  get hitWorld() { return (this.isTouch ? HIT_PX * 2 : HIT_PX) / this.view.zoom; }
 
   /** 作図用のスナップ（端点 → 水平垂直） */
   snapped(p, e, from) {
@@ -144,48 +156,113 @@ export class Editor2D {
   // ---- 入力 ----
   onDown(e) {
     this.canvas.setPointerCapture(e.pointerId);
+    this.isTouch = e.pointerType === 'touch';
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size === 2) {
+      this.startPinch();
+      return;
+    }
+    if (this.pointers.size > 2 || this.pinch) return;
     const p = this.toWorld(e);
+    this.mouse = p;
     if (e.button === 1 || e.button === 0 && (this.tool === 'pan' || this.spaceDown)) {
-      this.viewTouched = true;
-      this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: this.view.x, vy: this.view.y };
+      this.startPan(e);
       return;
     }
     if (e.button !== 0) return;
-    const pr = this.project;
 
-    switch (this.tool) {
-      case 'select': {
-        const hit = this.hitTest(p);
-        this.select(hit ? { kind: hit.kind, id: hit.id } : null);
-        if (!hit) return;
-        this.hooks.beginEdit();
-        if (hit.kind === 'wall') {
-          const w = pr.walls.find((x) => x.id === hit.id);
-          if (hit.handle) {
-            // 同じ位置にある他の壁の端点も一緒に動かす
-            const origin = { ...w[hit.handle] };
-            const linked = [];
-            for (const o of pr.walls) {
-              for (const k of ['a', 'b']) {
-                if (dist(o[k], origin) < 0.5) linked.push({ wall: o, key: k });
-              }
-            }
-            this.drag = { kind: 'handle', wall: w, key: hit.handle, linked, origin };
-          } else {
-            this.drag = { kind: 'wall', wall: w, start: p, a: { ...w.a }, b: { ...w.b } };
-          }
-        } else if (hit.kind === 'opening') {
-          const o = pr.openings.find((x) => x.id === hit.id);
-          this.drag = { kind: 'opening', opening: o, wall: pr.walls.find((w) => w.id === o.wallId) };
-        } else if (hit.kind === 'room') {
-          const r = pr.rooms.find((x) => x.id === hit.id);
-          this.drag = { kind: 'room', room: r, start: p, points: r.points.map((q) => ({ ...q })) };
-        }
-        this.drag.moved = false;
-        break;
+    if (this.tool === 'select') {
+      const hit = this.hitTest(p);
+      if (this.isTouch && !(hit && this.isSelected(hit.kind, hit.id))) {
+        // 指では「タップで選択 → 選択済みの物をドラッグで移動」。未選択の上のドラッグはスクロール
+        this.tap = { p, hit };
+        this.startPan(e);
+        return;
       }
+      this.select(hit ? { kind: hit.kind, id: hit.id } : null);
+      // 何もない所のドラッグは画面移動
+      if (!hit) this.startPan(e);
+      else this.startItemDrag(hit, p);
+    } else if (this.isTouch) {
+      // 指でのドラッグは画面移動、動かさずに離したらタップとして作図
+      this.tap = { p };
+      this.startPan(e);
+    } else {
+      this.applyTool(p, e);
+    }
+    this.render();
+  }
+
+  startPan(e) {
+    this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: this.view.x, vy: this.view.y };
+  }
+
+  startPinch() {
+    // 1 本目の指で始めた操作は取り消してピンチに切り替える
+    const d = this.drag;
+    if (d && d.kind !== 'pan') {
+      if (d.moved) this.hooks.abortEdit?.();
+      else this.hooks.cancelEdit?.();
+    }
+    this.drag = null;
+    this.tap = null;
+    const [a, b] = [...this.pointers.values()];
+    this.pinch = { d: Math.max(1, dist(a, b)), mid: lerp(a, b, 0.5), view: { ...this.view } };
+    this.viewTouched = true;
+  }
+
+  updatePinch() {
+    const [a, b] = [...this.pointers.values()];
+    const r = this.canvas.getBoundingClientRect();
+    const { d, mid, view } = this.pinch;
+    const m = lerp(a, b, 0.5);
+    const zoom = Math.min(40, Math.max(0.02, (view.zoom * dist(a, b)) / d));
+    // ピンチ開始時に指の中点にあった点が、現在の中点に来るようにする
+    const wx = (mid.x - r.left - view.x) / view.zoom;
+    const wy = (mid.y - r.top - view.y) / view.zoom;
+    this.view = { zoom, x: m.x - r.left - wx * zoom, y: m.y - r.top - wy * zoom };
+    this.render();
+  }
+
+  startItemDrag(hit, p) {
+    const pr = this.project;
+    this.hooks.beginEdit();
+    if (hit.kind === 'wall') {
+      const w = pr.walls.find((x) => x.id === hit.id);
+      if (hit.handle) {
+        // 同じ位置にある他の壁の端点も一緒に動かす
+        const origin = { ...w[hit.handle] };
+        const linked = [];
+        for (const o of pr.walls) {
+          for (const k of ['a', 'b']) {
+            if (dist(o[k], origin) < 0.5) linked.push({ wall: o, key: k });
+          }
+        }
+        this.drag = { kind: 'handle', wall: w, key: hit.handle, linked, origin };
+      } else {
+        this.drag = { kind: 'wall', wall: w, start: p, a: { ...w.a }, b: { ...w.b } };
+      }
+    } else if (hit.kind === 'opening') {
+      const o = pr.openings.find((x) => x.id === hit.id);
+      this.drag = { kind: 'opening', opening: o, wall: pr.walls.find((w) => w.id === o.wallId) };
+    } else if (hit.kind === 'room') {
+      const r = pr.rooms.find((x) => x.id === hit.id);
+      this.drag = { kind: 'room', room: r, start: p, points: r.points.map((q) => ({ ...q })) };
+    }
+    this.drag.moved = false;
+  }
+
+  /** 作図ツールの 1 クリック（タップ）分の操作 */
+  applyTool(p, e) {
+    const pr = this.project;
+    switch (this.tool) {
       case 'wall': {
         const from = this.draft?.from;
+        // 直前の点をもう一度クリック/タップしたら連続作図を終了
+        if (from && dist(p, from) <= this.hitWorld) {
+          this.finishDraft();
+          break;
+        }
         const q = this.snapped(p, e, from);
         if (!from) {
           this.draft = { from: { x: q.x, y: q.y } };
@@ -201,7 +278,7 @@ export class Editor2D {
       case 'door':
       case 'window': {
         const near = findNearestWall(pr.walls, p, this.hitWorld * 1.5);
-        if (!near) { this.hooks.status?.('壁の上をクリックしてください'); return; }
+        if (!near) { this.hooks.status?.('壁の上をクリック（タップ）してください'); break; }
         this.hooks.beginEdit();
         const o = { id: uid('o'), wallId: near.wall.id, t: near.t, type: this.tool, ...OPENING_DEFAULTS[this.tool] };
         pr.openings.push(o);
@@ -236,13 +313,27 @@ export class Editor2D {
   }
 
   onMove(e) {
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pinch) {
+      if (this.pointers.size >= 2) this.updatePinch();
+      return;
+    }
     const p = this.toWorld(e);
-    this.mouse = p;
+    if (!this.isTouch || !this.tap) this.mouse = p;
     const d = this.drag;
     if (d) {
       if (d.kind === 'pan') {
-        this.view.x = d.vx + e.clientX - d.sx;
-        this.view.y = d.vy + e.clientY - d.sy;
+        const mx = e.clientX - d.sx;
+        const my = e.clientY - d.sy;
+        // 少しでも動いたらタップではなくスクロール扱い
+        if (Math.hypot(mx, my) > 8) {
+          this.tap = null;
+          this.viewTouched = true;
+        }
+        if (!this.tap) {
+          this.view.x = d.vx + mx;
+          this.view.y = d.vy + my;
+        }
       } else if (d.kind === 'handle') {
         const other = d.wall[d.key === 'a' ? 'b' : 'a'];
         let q = snapToEndpoint(this.project.walls.filter((w) => !d.linked.some((l) => l.wall === w)), p, this.hitWorld);
@@ -276,7 +367,23 @@ export class Editor2D {
     this.render();
   }
 
-  onUp(e) {
+  onUp(e, cancelled = false) {
+    this.pointers.delete(e.pointerId);
+    if (this.pinch) {
+      // 指がすべて離れるまでピンチ扱い（残った指で誤操作しない）
+      if (this.pointers.size === 0) this.pinch = null;
+      return;
+    }
+    const tap = this.tap;
+    this.tap = null;
+    if (tap && !cancelled) {
+      this.drag = null;
+      this.mouse = tap.p;
+      if (this.tool === 'select') this.select(tap.hit ? { kind: tap.hit.kind, id: tap.hit.id } : null);
+      else this.applyTool(tap.p, e);
+      this.render();
+      return;
+    }
     const d = this.drag;
     this.drag = null;
     if (d && d.kind !== 'pan') {
@@ -573,13 +680,13 @@ export class Editor2D {
 }
 
 const TOOL_HINTS = {
-  select: 'クリックで選択・ドラッグで移動、端点ドラッグで伸縮、Delete で削除',
-  wall: 'クリックで壁を連続作図（Shift で角度自由）。右クリック / ダブルクリック / Esc で終了',
-  door: '壁の上をクリックしてドアを配置',
-  window: '壁の上をクリックして窓を配置',
-  room: 'クリックで頂点を追加、始点クリック / ダブルクリック / Enter で部屋を確定',
-  calibrate: '長さがわかっている2点（寸法線の両端など）をクリック',
-  pan: 'ドラッグで画面移動（Space+ドラッグ・ホイールでも操作可）',
+  select: 'クリック（タップ）で選択、選択した物をドラッグで移動・端点で伸縮、Delete で削除。空き場所のドラッグで画面移動',
+  wall: 'クリック（タップ）で壁を連続作図。最後の点をもう一度押す / 右クリック / Esc で終了（Shift で角度自由）',
+  door: '壁の上をクリック（タップ）してドアを配置',
+  window: '壁の上をクリック（タップ）して窓を配置',
+  room: 'クリック（タップ）で頂点を追加、始点を押す / Enter で部屋を確定',
+  calibrate: '長さがわかっている2点（寸法線の両端など）をクリック（タップ）',
+  pan: 'ドラッグで画面移動。ホイール / 2本指ピンチで拡大縮小',
 };
 
 const ROOM_COLORS = ['#e8d5b0', '#c9dcc4', '#c6d5e8', '#ead0d0', '#ddd4ea', '#e9e2bf'];
