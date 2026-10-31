@@ -679,7 +679,7 @@ function drawUnitIcon(c, x, y, r, t, look) {
   const bg = ctx.createRadialGradient(x, y, 2, x, y, r);
   bg.addColorStop(0, '#fff'); bg.addColorStop(1, el.light);
   ctx.fillStyle = bg; ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  drawChibi(ctx, c, x, y + r * 0.22, r * 0.6, { t, lx: look ? look.x : 0, ly: look ? look.y : 0 });
+  drawFace(ctx, c, x, y, r, { t, lx: look ? look.x : 0, ly: look ? look.y : 0 });
   ctx.restore();
 }
 
@@ -870,7 +870,7 @@ function drawCutin() {
   }
   // キャラクター
   const px = W + 160 - ease((t - 4) / 16) * 300 - t * 0.3;
-  drawChibi(ctx, u, px, 270, 78, { t: frame, body: true });
+  drawPortrait(ctx, u, px, 270, 78, { t: frame });
   ctx.restore();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(-W + bandIn * W, 190); ctx.lineTo(bandIn * W * 2, 150); ctx.stroke();
@@ -914,7 +914,7 @@ function drawWin() {
   units.forEach((u, i) => {
     const p = ease((t - 10 - i * 6) / 14);
     if (p <= 0) return;
-    drawChibi(ctx, u, 66 + i * 96, 250 + (1 - p) * 60 + Math.sin(frame * 0.1 + i) * 3, 34, { t: frame + i * 30, body: true });
+    drawPortrait(ctx, u, 66 + i * 96, 250 + (1 - p) * 60 + Math.sin(frame * 0.1 + i) * 3, 34, { t: frame + i * 30 });
   });
   ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif';
   ctx.fillText(`クリアターン：${turnCount}（目標 ${stage.par}）`, W / 2, 380);
@@ -952,7 +952,7 @@ function drawTitle() {
   ctx.globalAlpha = 1;
   // キャラクターが並ぶ
   const show = [CHARACTERS[3], CHARACTERS[0], CHARACTERS[2], CHARACTERS[1]];
-  show.forEach((c, i) => drawChibi(ctx, c, 70 + i * 93, 225 + Math.sin(frame * 0.05 + i) * 5, 30, { t: frame + i * 40, body: true }));
+  show.forEach((c, i) => drawPortrait(ctx, c, 70 + i * 93, 225 + Math.sin(frame * 0.05 + i) * 5, 30, { t: frame + i * 40 }));
   ctx.textAlign = 'center';
   ctx.font = '900 italic 46px sans-serif'; ctx.lineWidth = 9; ctx.strokeStyle = '#000';
   ctx.strokeText('ハジキ・ブレイブ', W / 2, 105);
@@ -994,7 +994,7 @@ function drawParty() {
     tg.addColorStop(0, el.color); tg.addColorStop(1, el.dark);
     ctx.fillStyle = tg; roundRect(ctx, r.x, r.y, r.w, r.h, 8); ctx.fill();
     ctx.save(); roundRect(ctx, r.x, r.y, r.w, r.h, 8); ctx.clip();
-    drawChibi(ctx, c, r.x + r.w / 2, r.y + 44, 26, { t: frame + i * 30, body: true });
+    drawPortrait(ctx, c, r.x + r.w / 2, r.y + 44, 26, { t: frame + i * 30 });
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(r.x, r.y + r.h - 30, r.w, 30);
     ctx.restore();
     ctx.strokeStyle = detailIdx === i ? '#fff' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = detailIdx === i ? 3 : 1;
@@ -1020,7 +1020,7 @@ function drawParty() {
   const bg = ctx.createRadialGradient(95, py + 120, 10, 95, py + 120, 120);
   bg.addColorStop(0, el.light); bg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = bg; ctx.fillRect(12, py, 170, 300);
-  drawChibi(ctx, c, 95, py + 95, 46, { t: frame, body: true });
+  drawPortrait(ctx, c, 95, py + 95, 46, { t: frame });
   ctx.restore();
   ctx.textAlign = 'left';
   const tx = 185;

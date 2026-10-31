@@ -412,3 +412,28 @@ function drawHeart(g, x, y, s) {
   g.bezierCurveTo(x - s * 1.4, y - s * 0.1, x - s * 0.6, y - s * 1.1, x, y - s * 0.35);
   g.bezierCurveTo(x + s * 0.6, y - s * 1.1, x + s * 1.4, y - s * 0.1, x, y + s * 0.9); g.fill();
 }
+
+// ===== 外部イラスト（assets/characters/<id>.png があれば手描き風の描画より優先） =====
+const CHAR_IMG = {};
+for (const c of CHARACTERS) {
+  const img = new Image();
+  img.onload = () => { CHAR_IMG[c.id] = img; };
+  img.src = `assets/characters/${c.id}.png`;
+}
+
+// 胴体つき立ち絵。drawChibi(body) とほぼ同じ範囲（幅約3.2s、y-1.8s〜y+2.6s）に収める
+function drawPortrait(g, c, x, y, s, opt = {}) {
+  const img = CHAR_IMG[c.id];
+  if (!img) { drawChibi(g, c, x, y, s, { ...opt, body: true }); return; }
+  const h = s * 4.4, w = h * img.width / img.height;
+  g.drawImage(img, x - w / 2, y - s * 1.8, w, h);
+}
+
+// 丸アイコン用に顔のあたりを切り出す。face: { x, y, size }（画像幅に対する割合）
+function drawFace(g, c, x, y, r, opt = {}) {
+  const img = CHAR_IMG[c.id];
+  if (!img) { drawChibi(g, c, x, y + r * 0.22, r * 0.6, opt); return; }
+  const f = c.face || { x: 0.5, y: 0.28, size: 0.42 };
+  const side = img.width * f.size;
+  g.drawImage(img, img.width * f.x - side / 2, img.height * f.y - side / 2, side, side, x - r, y - r, r * 2, r * 2);
+}

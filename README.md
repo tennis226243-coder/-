@@ -58,3 +58,22 @@ python3 -m http.server 8000   # → http://localhost:8000
 - **キャラ追加**：`data.js` の `CHARACTERS` に追加。`look` で髪色・髪型（`spiky` `long` `bob` `twin` `wild`）・瞳・アクセサリー（`flame` `pearl` `band` `halo` `moon` `wing` `horn` `fin`）を指定すると自動で描かれる
 - **ステージ追加**：`STAGES` に追加。敵は `E(...)`、ボスは `boss(...)`。`walls` に `left` `right` `top` で雷の壁
 - **モンスターの見た目追加**：`art.js` の `drawMonster` に `case` を追加
+
+## キャラクターイラストの差し替え（ChatGPT / Gemini）
+
+`assets/characters/<キャラID>.png` を置くと、そのキャラはコード描画の代わりにイラストで表示されます
+（編成画面・カットイン・タイトル・クリア画面・丸アイコン）。画像のないキャラは従来の描画のままです。
+
+イラストは ChatGPT（OpenAI 画像API）と Gemini に依頼するスクリプトで生成できます。
+依頼文は `tools/art_prompts.json`（絵柄の共通指定＋8体分の設定）にあります。
+
+```sh
+OPENAI_API_KEY=... GEMINI_API_KEY=... python3 tools/generate_art.py          # 全員
+OPENAI_API_KEY=... python3 tools/generate_art.py kagutsuchi amaterasu        # 一部だけ
+```
+
+- 結果は `assets/characters/candidates/<id>_openai.png` と `<id>_gemini.png` に保存
+- 気に入った方を `assets/characters/<id>.png` にコピーすれば反映
+- 縦長（2:3）、背景は透過か白、顔が上 1/3 にある構図を想定。丸アイコンの切り抜き位置がずれる場合は
+  `data.js` のキャラに `face: { x: 0.5, y: 0.28, size: 0.42 }`（画像に対する割合）を追加して調整
+- モデルは `OPENAI_IMAGE_MODEL` / `GEMINI_IMAGE_MODEL` で変更可
