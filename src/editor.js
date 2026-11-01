@@ -4,6 +4,7 @@ import {
   OPENING_DEFAULTS, bounds, wallLength, polygonArea,
 } from './model.js';
 import { hitFurniture, furnitureCorners } from './furniture.js';
+import { ROOM_FLOORS } from './rooms.js';
 
 const HIT_PX = 10; // 画面上のヒット判定半径
 const STROKE_ORTHO_DEG = 12; // なぞり描きで水平・垂直に揃える角度
@@ -494,6 +495,7 @@ export class Editor2D {
         name: `部屋${pr.rooms.length + 1}`,
         points: d.points,
         color: ROOM_COLORS[pr.rooms.length % ROOM_COLORS.length],
+        floor: 'default',
       };
       pr.rooms.push(room);
       this.hooks.changed();
@@ -560,7 +562,8 @@ export class Editor2D {
       ctx.stroke();
       const c = centroid(r.points);
       const area = polygonArea(r.points) * pr.scale * pr.scale;
-      this.label(`${r.name}  ${area.toFixed(1)}㎡ (${(area / 1.62).toFixed(1)}畳)`, c, '#1f2937', 'rgba(255,255,255,0.8)');
+      const floor = r.floor && r.floor !== 'default' ? `・${ROOM_FLOORS[r.floor]?.name ?? ''}` : '';
+      this.label(`${r.name}${floor}  ${area.toFixed(1)}㎡ (${(area / 1.62).toFixed(1)}畳)`, c, '#1f2937', 'rgba(255,255,255,0.8)');
     }
 
     // 家具

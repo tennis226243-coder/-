@@ -113,6 +113,9 @@ export class Viewer3D {
     Object.assign(this.options, options);
     disposeTree(this.model);
     this.model.clear();
+    // 部屋ごとに位置を合わせた畳テクスチャ（複製）は毎回作り直す
+    for (const t of this.roomTextures ?? []) t.dispose();
+    this.roomTextures = [];
 
     const s = project.scale;
     const b = bounds(project);
@@ -286,17 +289,36 @@ export class Viewer3D {
         }
       }
     } else {
-      const mat = new THREE.MeshStandardMaterial({
-        map: floorTexture(finish, this.renderer), roughness: 0.55, side: THREE.DoubleSide,
-      });
-      if (project.rooms.length && opts.showRooms) {
-        for (const room of project.rooms) addFloor(shapeOf(room.points), mat, `Room_${room.name || room.id}`, 0.002);
-      } else if (project.walls.length) {
-        // 部屋が未作成なら、壁に囲まれた範囲全体に床を貼る
+      const floorMat = (f, room) => {
+        let map = floorTexture(f, this.renderer);
+        if (room && f === 'tatami') {
+          // 畳は部屋の左上の角から敷き始める
+          map = map.clone();
+          this.roomTextures.push(map);
+          const xs = room.points.map((p) => P(p).x);
+          const ys = room.points.map((p) => -P(p).z);
+          map.offset.set(-Math.min(...xs) * map.repeat.x, -Math.max(...ys) * map.repeat.y);
+          map.needsUpdate = true;
+        }
+        return new THREE.MeshStandardMaterial({
+          map, side: THREE.DoubleSide,
+          roughness: f === 'tatami' ? 0.9 : f.startsWith('tile') ? 0.35 : 0.55,
+        });
+      };
+      // 家全体（廊下なども含む）の床
+      if (project.walls.length) {
         const xs = project.walls.flatMap((w) => [w.a.x, w.b.x]);
         const ys = project.walls.flatMap((w) => [w.a.y, w.b.y]);
         const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-        addFloor(shapeOf([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]), mat, 'Floor', 0.002);
+        addFloor(shapeOf([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]), floorMat(finish), 'Floor', 0.001);
+      }
+      // 部屋ごとの床材（和室の畳、水回りのタイルなど）
+      if (opts.showRooms) {
+        for (const room of project.rooms) {
+          const f = room.floor && room.floor !== 'default' ? room.floor : null;
+          if (!f || f === finish || !floorTexture(f, this.renderer)) continue;
+          addFloor(shapeOf(room.points), floorMat(f, room), `Room_${room.name || room.id}`, f === 'tatami' ? 0.006 : 0.003);
+        }
       }
     }
 

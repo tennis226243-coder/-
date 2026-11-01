@@ -275,6 +275,77 @@ function curtain(g, { w, d, h }, color) {
   box(g, w + 0.06, 0.025, 0.04, 0, h - 0.02, -d / 4, metal('#c9ced3'));
 }
 
+function bathtub(g, { w, d, h }, color) {
+  const c = mat(color, { roughness: 0.2 });
+  const t = 0.07;
+  rbox(g, w, h, t, 0, h / 2, -d / 2 + t / 2, c, 0.02);
+  rbox(g, w, h, t, 0, h / 2, d / 2 - t / 2, c, 0.02);
+  rbox(g, t, h, d, -w / 2 + t / 2, h / 2, 0, c, 0.02);
+  rbox(g, t, h, d, w / 2 - t / 2, h / 2, 0, c, 0.02);
+  rbox(g, w - 0.02, 0.06, d - 0.02, 0, 0.03, 0, c, 0.02);
+  // 湯（半透明の水面）
+  box(g, w - t * 2, 0.01, d - t * 2, 0, h * 0.7, 0, mat('#9fd0e6', { roughness: 0.05, transparent: true, opacity: 0.55 }));
+  cyl(g, 0.015, 0.015, 0.18, w / 2 - 0.15, h + 0.09, -d / 2 + 0.04, metal('#c9ced3'), 10);
+}
+
+function toilet(g, { w, d, h }, color) {
+  const c = mat(color, { roughness: 0.15 });
+  const seatH = Math.min(0.42, h * 0.55);
+  // タンク（背面）
+  rbox(g, w, h - seatH + 0.05, 0.2, 0, seatH + (h - seatH) / 2 - 0.02, -d / 2 + 0.1, c, 0.03);
+  // 便器（楕円の筒）と便座
+  const bowl = cyl(g, w * 0.48, w * 0.36, seatH - 0.02, 0, (seatH - 0.02) / 2, d * 0.08, c, 24);
+  bowl.scale.z = 1.35;
+  const seat = cyl(g, w * 0.5, w * 0.5, 0.03, 0, seatH, d * 0.08, mat('#fbfbfa', { roughness: 0.3 }), 24);
+  seat.scale.z = 1.4;
+  const lid = cyl(g, w * 0.44, w * 0.44, 0.015, 0, seatH + 0.025, d * 0.08, mat('#fbfbfa', { roughness: 0.3 }), 24);
+  lid.scale.z = 1.35;
+}
+
+function vanity(g, { w, d, h }, color) {
+  const c = mat(color, { roughness: 0.35 });
+  const counter = 0.85;
+  rbox(g, w, counter - 0.05, d, 0, 0.05 + (counter - 0.05) / 2, 0, c, 0.01);
+  box(g, 0.004, counter - 0.15, 0.004, 0, counter / 2, d / 2 + 0.002, mat('#000000', { transparent: true, opacity: 0.2 }));
+  rbox(g, w, 0.03, d, 0, counter + 0.015, 0, mat('#ffffff', { roughness: 0.15 }), 0.008);
+  const basin = cyl(g, w * 0.3, w * 0.24, 0.02, 0, counter + 0.025, d * 0.05, mat('#dfe5ea', { roughness: 0.1 }), 24);
+  basin.scale.z = 0.8;
+  cyl(g, 0.012, 0.012, 0.2, 0, counter + 0.13, -d / 2 + 0.06, metal('#c9ced3'), 10);
+  // 鏡付きの収納（上部）
+  if (h > 1.4) {
+    const mh = Math.min(0.75, h - 1.15);
+    rbox(g, w, mh, 0.16, 0, h - mh / 2, -d / 2 + 0.08, c, 0.01);
+    box(g, w - 0.06, mh - 0.08, 0.004, 0, h - mh / 2, -d / 2 + 0.162, mat('#cfd8de', { roughness: 0.02, metalness: 1 }));
+  }
+}
+
+function oshiire(g, { w, d, h }, color) {
+  const frame = wood('#8b6b4a');
+  rbox(g, w, h, d, 0, h / 2, 0, mat('#d9cdb4', { roughness: 0.8 }), 0.005);
+  // ふすま 2 枚（上下 2 段に分かれた見た目）
+  const paper = mat(color, { roughness: 0.95 });
+  for (const s of [-1, 1]) {
+    box(g, w / 2 - 0.03, h - 0.06, 0.02, s * w / 4, h / 2, d / 2 + 0.01, paper);
+    // 引手（ふすまの外側寄り）
+    cyl(g, 0.025, 0.025, 0.006, s * (w / 2 - 0.12), h * 0.5, d / 2 + 0.022, mat('#3a3128'), 12).rotation.x = Math.PI / 2;
+  }
+  box(g, w, 0.03, 0.03, 0, h - 0.015, d / 2 + 0.015, frame);
+  box(g, w, 0.03, 0.03, 0, 0.015, d / 2 + 0.015, frame);
+  box(g, 0.02, h, 0.025, 0, h / 2, d / 2 + 0.022, frame);
+}
+
+function zataku(g, { w, d, h }, color) {
+  const c = wood(color);
+  rbox(g, w, 0.05, d, 0, h - 0.025, 0, mat(color, { roughness: 0.3 }), 0.01);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    box(g, 0.06, h - 0.05, 0.06, sx * (w / 2 - 0.08), (h - 0.05) / 2, sz * (d / 2 - 0.08), c);
+  }
+}
+
+function zabuton(g, { w, d, h }, color) {
+  rbox(g, w, h, d, 0, h / 2, 0, fabric(color), Math.min(0.04, h / 2));
+}
+
 function armchair(g, size, color) {
   sofa(g, size, color, 1);
 }
@@ -292,6 +363,8 @@ const BUILDERS = {
   wardrobe: (g, s, c) => cabinet(g, s, c, { doors: 2 }),
   sideboard: (g, s, c) => cabinet(g, s, c),
   washer, shelf, plant, floorlamp, curtain,
+  bathtub, toilet, vanity, oshiire, zataku, zabuton,
+  getabako: (g, s, c) => cabinet(g, s, c, { doors: 2 }),
 };
 
 /** 家具 1 点の 3D グループ（位置・回転は呼び出し側で設定） */
