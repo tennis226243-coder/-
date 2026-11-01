@@ -10,6 +10,9 @@ export const FLOOR_FINISHES = {
   'wood-dark': { name: 'フローリング（濃い）', base: [118, 82, 56], spread: 16 },
   'wood-gray': { name: 'フローリング（グレージュ）', base: [170, 158, 142], spread: 14 },
   tile: { name: 'タイル', base: [226, 224, 218] },
+  // 部屋ごとの床材としてだけ使うもの（tile はテクスチャ 1 枚が何 m 角か）
+  tatami: { name: '畳', base: [200, 196, 136], tile: 3.64, roomOnly: true },
+  'tile-bath': { name: '浴室タイル', base: [214, 224, 230], tile: 1.2, roomOnly: true },
 };
 
 const cache = new Map();
@@ -58,13 +61,50 @@ function woodCanvas({ base, spread }) {
   return c;
 }
 
-function tileCanvas({ base }) {
+/** 畳（半畳 = 91cm を 1 単位として 4×4 単位 = 3.64m 角。2 枚ずつ縦横を交互に敷く） */
+function tatamiCanvas({ base }) {
+  const size = 1024;
+  const u = size / 4;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const rand = rng(11);
+  const mat = (x, y, w, h) => {
+    const vertical = h > w;
+    const k = (rand() - 0.5) * 14;
+    g.fillStyle = `rgb(${base.map((v) => v + k).join(',')})`;
+    g.fillRect(x, y, w, h);
+    // い草の目（長手方向に細い線）
+    g.strokeStyle = 'rgba(120,115,60,0.18)';
+    g.lineWidth = 1;
+    const step = 5;
+    for (let t = step; t < (vertical ? w : h); t += step) {
+      g.beginPath();
+      if (vertical) { g.moveTo(x + t, y); g.lineTo(x + t, y + h); } else { g.moveTo(x, y + t); g.lineTo(x + w, y + t); }
+      g.stroke();
+    }
+    // 長辺の縁（へり）
+    const e = 9;
+    g.fillStyle = '#3f3a2e';
+    if (vertical) { g.fillRect(x, y, e, h); g.fillRect(x + w - e, y, e, h); } else { g.fillRect(x, y, w, e); g.fillRect(x, y + h - e, w, e); }
+    g.strokeStyle = 'rgba(60,50,30,0.5)';
+    g.lineWidth = 2;
+    g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  };
+  // 左上・右下は縦 2 枚、右上・左下は横 2 枚
+  for (const [qx, qy, vertical] of [[0, 0, true], [2, 0, false], [0, 2, false], [2, 2, true]]) {
+    if (vertical) { mat(qx * u, qy * u, u, 2 * u); mat((qx + 1) * u, qy * u, u, 2 * u); }
+    else { mat(qx * u, qy * u, 2 * u, u); mat(qx * u, (qy + 1) * u, 2 * u, u); }
+  }
+  return c;
+}
+
+function tileCanvas({ base }, n = 4) {
   const size = 1024;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
   const rand = rng(3);
-  const n = 4; // 60cm 角
   const t = size / n;
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
@@ -87,9 +127,14 @@ export function floorTexture(finish, renderer) {
   if (cache.has(finish)) return cache.get(finish);
   const def = FLOOR_FINISHES[finish];
   if (!def?.base) return null;
-  const tex = new THREE.CanvasTexture(finish === 'tile' ? tileCanvas(def) : woodCanvas(def));
+  const canvas = finish === 'tatami' ? tatamiCanvas(def)
+    : finish === 'tile' ? tileCanvas(def, 4) // 60cm 角
+      : finish === 'tile-bath' ? tileCanvas(def, 6) // 20cm 角
+        : woodCanvas(def);
+  const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / TILE_M, 1 / TILE_M);
+  const tile = def.tile ?? TILE_M;
+  tex.repeat.set(1 / tile, 1 / tile);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer?.capabilities.getMaxAnisotropy() ?? 1;
   cache.set(finish, tex);

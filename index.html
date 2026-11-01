@@ -40,7 +40,10 @@
             画像を選択
             <input type="file" id="image-input" accept="image/*" hidden />
           </label>
-          <button id="load-sample">サンプル間取りで試す</button>
+          <div class="grid2">
+            <button id="load-sample">サンプル（白黒）</button>
+            <button id="load-sample-color">サンプル（和室・浴室）</button>
+          </div>
           <p class="hint">画像はドラッグ＆ドロップ、貼り付け (Ctrl+V) でも読み込めます。</p>
           <label class="check"><input type="checkbox" id="auto-3d" checked /> 読み込んだらすぐ 3D に変換する</label>
         </section>
@@ -63,6 +66,7 @@
             <label class="row">最小の壁厚
               <input type="number" id="min-thick" min="2" max="80" placeholder="自動" /> px</label>
             <label class="check"><input type="checkbox" id="detect-openings" checked /> 壁の隙間をドア・窓に変換</label>
+            <label class="check"><input type="checkbox" id="detect-rooms" checked /> 色から和室・水回り・洋室を推定</label>
             <label class="check"><input type="checkbox" id="detect-replace" checked /> 既存の壁を置き換える</label>
             <p class="hint">設定を変えるとすぐに検出し直します。線が多すぎるときは「最小の壁厚」を大きく、壁が足りないときは小さくするか明るさを上げてください。</p>
           </details>

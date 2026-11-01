@@ -26,7 +26,14 @@ export const FURNITURE_CATALOG = [
   { type: 'wardrobe', name: 'ワードローブ', group: '寝室', w: 0.9, d: 0.6, h: 1.8, color: '#d4c4aa' },
   { type: 'desk', name: 'デスク', group: '書斎', w: 1.0, d: 0.6, h: 0.72, color: '#a0785a' },
   { type: 'shelf', name: '本棚', group: '書斎', w: 0.8, d: 0.3, h: 1.8, color: '#c9b79c' },
+  { type: 'bathtub', name: '浴槽', group: '水回り', w: 1.4, d: 0.75, h: 0.55, color: '#f4f6f8' },
+  { type: 'toilet', name: 'トイレ', group: '水回り', w: 0.42, d: 0.72, h: 0.78, color: '#f7f7f5' },
+  { type: 'vanity', name: '洗面台', group: '水回り', w: 0.75, d: 0.5, h: 1.9, color: '#f2f0ec' },
   { type: 'washer', name: '洗濯機', group: '水回り', w: 0.6, d: 0.6, h: 1.0, color: '#f4f5f7' },
+  { type: 'oshiire', name: '押入れ（ふすま）', group: '和室', w: 1.8, d: 0.8, h: 1.8, color: '#efe7d4' },
+  { type: 'zataku', name: '座卓', group: '和室', w: 1.2, d: 0.75, h: 0.33, color: '#6b4a32' },
+  { type: 'zabuton', name: '座布団', group: '和室', w: 0.55, d: 0.59, h: 0.08, color: '#8a3b3b' },
+  { type: 'getabako', name: '下駄箱', group: '玄関', w: 0.9, d: 0.38, h: 1.0, color: '#c9b79c' },
   { type: 'plant', name: '観葉植物', group: 'その他', w: 0.4, d: 0.4, h: 1.2, color: '#4f8a4b' },
 ];
 

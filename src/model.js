@@ -2,6 +2,7 @@
 // 座標はすべて「画像ピクセル」単位。実寸(m)への換算は project.scale (m/px) を使う。
 
 import { normalizeFurniture } from './furniture.js';
+import { normalizeRoomFloor } from './rooms.js';
 
 let nextId = 1;
 export const uid = (prefix) => `${prefix}${Date.now().toString(36)}${(nextId++).toString(36)}`;
@@ -213,6 +214,8 @@ function normalizeLayout(data) {
         name: String(r.name ?? ''),
         points: r.points.map(pt),
         color: typeof r.color === 'string' ? r.color : '#d9c7a7',
+        floor: normalizeRoomFloor(r.floor, String(r.name ?? '')),
+        ...(r.auto ? { auto: true } : {}),
       })),
     furniture: normalizeFurniture(data.furniture),
   };

@@ -149,6 +149,8 @@ details { font-size: 13px; }
 details > summary { cursor: pointer; color: var(--muted); }
 details[open] { display: grid; gap: 8px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.grid2 > * { min-width: 0; white-space: normal; line-height: 1.3; }
+.panel { overflow-x: hidden; }
 .stats { color: var(--muted); font-size: 12px; }
 
 /* ---- ビュー ---- */

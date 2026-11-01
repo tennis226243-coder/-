@@ -4,8 +4,9 @@ import {
 import { detectWalls, findOpenings, estimateWallThickness } from './autodetect.js';
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
-import { drawSamplePlan, SAMPLE_SCALE } from './sample.js';
+import { drawSamplePlan, drawColorSamplePlan, SAMPLE_SCALE } from './sample.js';
 import { FURNITURE_CATALOG, createFurniture } from './furniture.js';
+import { ROOM_FLOORS, floorFromName, detectRoomsByColor } from './rooms.js';
 import {
   ensureVariants, syncActive, switchVariant, addVariant, removeVariant, renameVariant,
   variantProject, diffLayouts, summarize,
@@ -188,6 +189,45 @@ function setPlanImage(dataUrl, { scale, detect = false } = {}) {
   img.src = dataUrl;
 }
 
+/**
+ * 色から推定した部屋に名前・床材を付ける。
+ * ベージュで一番広い部屋は LDK、細長い・L 字の細い部屋は廊下。
+ * 水回りは広さで推定：1.8㎡ 未満はトイレ、2.5㎡ 以上で一番広いものは浴室、それ以外は洗面。
+ */
+function namedRooms(found, f) {
+  const m2 = (r) => (r.areaPx / (f * f)) * project.scale ** 2;
+  const bboxM = (r) => {
+    const xs = r.points.map((p) => p.x / f);
+    const ys = r.points.map((p) => p.y / f);
+    return [(Math.max(...xs) - Math.min(...xs)) * project.scale, (Math.max(...ys) - Math.min(...ys)) * project.scale];
+  };
+  const western = found.filter((r) => r.kind === 3).sort((a, b) => m2(b) - m2(a));
+  const wet = found.filter((r) => r.kind === 2).sort((a, b) => m2(b) - m2(a));
+  const nameOf = (r) => {
+    if (r.kind === 1) return ['和室', 'tatami'];
+    if (r.kind === 2) {
+      if (m2(r) < 1.8) return ['トイレ', 'tile'];
+      if (r === wet[0] && m2(r) >= 2.5) return ['浴室', 'tile-bath'];
+      return ['洗面', 'tile'];
+    }
+    const [bw, bh] = bboxM(r);
+    if (r === western[0] && m2(r) >= 12) return ['LDK', 'default'];
+    if (Math.min(bw, bh) < 1.2 || m2(r) / (bw * bh) < 0.55) return ['廊下', 'default'];
+    return ['洋室', 'default'];
+  };
+  return found.map((r) => {
+    const [name, floor] = nameOf(r);
+    return {
+      id: uid('r'),
+      name,
+      points: r.points.map((p) => ({ x: p.x / f, y: p.y / f })),
+      color: floor === 'default' ? '#e8d5b0' : ROOM_FLOORS[floor].color,
+      floor,
+      auto: true,
+    };
+  });
+}
+
 let detectedOnce = false;
 function runDetection(img = editor.image, { tuning = false } = {}) {
   if (!img) {
@@ -221,6 +261,11 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
   const provisional = !project.calibrated
     ? estimateScaleFromWalls(found.map((w) => ({ a: { x: w.a.x / f, y: w.a.y / f }, b: { x: w.b.x / f, y: w.b.y / f } })))
     : null;
+  // 色から部屋を推定。検出した壁（ドア位置でも途切れない）を境界にして隣の部屋とつながらないようにする
+  const scaleForArea = provisional ?? project.scale;
+  const minM2 = { 1: 3, 2: 0.8, 3: 3 };
+  const colorRooms = ($('#detect-rooms').checked ? detectRoomsByColor(imageData, { barriers: found }) : [])
+    .filter((r) => (r.areaPx / (f * f)) * scaleForArea ** 2 >= minM2[r.kind]);
   edit(() => {
     if (provisional) project.scale = provisional;
     if ($('#detect-replace').checked) {
@@ -252,14 +297,21 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
       if (o.type === 'door') doors++;
       else windows++;
     }
+    // 色から推定した部屋（前回の自動推定分だけ置き換え、手で描いた部屋は残す）
+    if ($('#detect-rooms').checked) {
+      project.rooms = project.rooms.filter((r) => !r.auto);
+      project.rooms.push(...namedRooms(colorRooms, f));
+    }
   });
   detectedOnce = true;
   if (!tuning) viewer.hasFitted = false;
   // 2D だけの表示だと 3D 化されたことに気付きにくいので分割表示にする
   if (!tuning && found.length && $('.views').dataset.view === '2d') setView('split');
   if (provisional) syncInputs();
+  const autoNames = project.rooms.filter((r) => r.auto).map((r) => r.name);
+  const roomText = autoNames.length ? `・部屋 ${autoNames.length}（${[...new Set(autoNames)].join('・')}）` : '';
   setStatus(found.length
-    ? `3D に変換しました（壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所）。` +
+    ? `3D に変換しました（壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所${roomText}）。` +
       (provisional
         ? '縮尺は仮の値（約 65㎡ と想定）です。「縮尺」ツールで寸法線の長さを合わせると実寸になります'
         : 'ツールで修正・追加できます')
@@ -350,7 +402,21 @@ function renderSelection(sel) {
     add('床からの高さ', item.sill, (v) => { item.sill = v; });
   } else if (sel.kind === 'room') {
     $('#sel-title').textContent = '部屋';
-    add('名前', item.name, (v) => { item.name = v; }, { type: 'text', unit: '' });
+    add('名前', item.name, (v) => {
+      item.name = v;
+      // 名前から床材が分かれば（和室・浴室など）自動で合わせる
+      const guess = floorFromName(v);
+      if (guess && (!item.floor || item.floor === 'default')) setRoomFloor(item, guess);
+    }, { type: 'text', unit: '' });
+    const row = document.createElement('label');
+    row.className = 'row';
+    row.append('床材 ');
+    const select = document.createElement('select');
+    for (const [key, def] of Object.entries(ROOM_FLOORS)) select.append(new Option(def.name, key));
+    select.value = item.floor ?? 'default';
+    select.addEventListener('change', () => edit(() => setRoomFloor(item, select.value)));
+    row.append(select);
+    fields.append(row);
     add('色', item.color, (v) => { item.color = v; }, { type: 'color', unit: '' });
     const area = polygonArea(item.points) * project.scale ** 2;
     const p = document.createElement('p');
@@ -382,6 +448,11 @@ function renderSelection(sel) {
     add('回転', item.rot, (v) => { item.rot = ((v % 360) + 360) % 360; }, { step: 15, min: -360, unit: '°' });
     add('色', item.color, (v) => { item.color = v; }, { type: 'color', unit: '' });
   }
+}
+
+function setRoomFloor(room, floor) {
+  room.floor = floor;
+  if (floor !== 'default') room.color = ROOM_FLOORS[floor].color;
 }
 
 function findItem(sel) {
@@ -418,7 +489,7 @@ for (const id of ['#wall-color', '#wall-opacity', '#floor-finish', '#show-rooms'
 }
 $('#threshold').addEventListener('input', (e) => { $('#threshold-out').textContent = e.target.value; });
 // 検出の設定を変えたら、その場で検出し直して結果を見せる
-for (const id of ['#threshold', '#min-thick', '#detect-openings']) {
+for (const id of ['#threshold', '#min-thick', '#detect-openings', '#detect-rooms']) {
   $(id).addEventListener('change', () => {
     if (detectedOnce && editor.image && $('#detect-replace').checked) runDetection(editor.image, { tuning: true });
   });
@@ -471,7 +542,10 @@ $('#image-input').addEventListener('change', (e) => {
   loadImageFromBlob(e.target.files[0]);
   e.target.value = '';
 });
-$('[data-action="sample"]').addEventListener('click', () => $('#load-sample').click());
+$('[data-action="sample"]').addEventListener('click', () => $('#load-sample-color').click());
+$('#load-sample-color').addEventListener('click', () => {
+  setPlanImage(drawColorSamplePlan().toDataURL('image/png'), { scale: SAMPLE_SCALE, detect: true });
+});
 $('#load-sample').addEventListener('click', () => {
   setPlanImage(drawSamplePlan().toDataURL('image/png'), { scale: SAMPLE_SCALE, detect: true });
 });
