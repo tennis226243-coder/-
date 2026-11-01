@@ -67,6 +67,7 @@
               <input type="number" id="min-thick" min="2" max="80" placeholder="自動" /> px</label>
             <label class="check"><input type="checkbox" id="detect-openings" checked /> 壁の隙間をドア・窓に変換</label>
             <label class="check"><input type="checkbox" id="detect-rooms" checked /> 色から和室・水回り・洋室を推定</label>
+            <label class="check"><input type="checkbox" id="detect-fixtures" checked /> 浴室・トイレ・洗面に設備を自動で置く</label>
             <label class="check"><input type="checkbox" id="detect-replace" checked /> 既存の壁を置き換える</label>
             <p class="hint">設定を変えるとすぐに検出し直します。線が多すぎるときは「最小の壁厚」を大きく、壁が足りないときは小さくするか明るさを上げてください。</p>
           </details>
@@ -137,6 +138,7 @@
               <span class="hint">押すと図面の中央に置かれます。ドラッグで移動</span>
               <button id="palette-close" class="v-icon" aria-label="閉じる">閉じる</button>
             </div>
+            <div class="palette-tabs" id="palette-tabs" role="tablist" aria-label="家具の種類"></div>
             <div class="palette-items" id="palette-items"></div>
           </div>
           <div class="empty" id="empty-2d">

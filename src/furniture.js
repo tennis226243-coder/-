@@ -8,6 +8,11 @@ export const FURNITURE_CATALOG = [
   { type: 'person', name: '大人（立ち）', group: '人', w: 0.46, d: 0.28, h: 1.7, color: '#4b6a8a', person: true },
   { type: 'person-sit', name: '大人（座り）', group: '人', w: 0.46, d: 0.62, h: 1.3, color: '#8a5a4b', person: true },
   { type: 'child', name: '子ども', group: '人', w: 0.34, d: 0.2, h: 1.15, color: '#d08a3a', person: true },
+  // 設備ユニット（部屋まるごと。大きさを部屋に合わせて使う）
+  { type: 'unitbath', name: 'ユニットバス', group: '水回り', w: 1.6, d: 1.6, h: 2.0, color: '#eef1f4', unit: true },
+  { type: 'toiletroom', name: 'トイレ（手洗い付き）', group: '水回り', w: 0.8, d: 1.3, h: 1.0, color: '#f7f7f5', unit: true },
+  { type: 'washroom', name: '洗面所（洗面台＋洗濯機）', group: '水回り', w: 1.4, d: 0.6, h: 1.9, color: '#f2f0ec', unit: true },
+  { type: 'genkan', name: '玄関（土間・框・下駄箱）', group: '玄関', w: 1.4, d: 1.2, h: 1.0, color: '#8e8a84', unit: true },
   { type: 'sofa3', name: 'ソファ（3人）', group: 'リビング', w: 1.9, d: 0.85, h: 0.8, color: '#7d8fa3' },
   { type: 'sofa2', name: 'ソファ（2人）', group: 'リビング', w: 1.5, d: 0.85, h: 0.8, color: '#7d8fa3' },
   { type: 'sofaL', name: 'L字ソファ', group: 'リビング', w: 2.4, d: 1.6, h: 0.8, color: '#8b8478' },
@@ -88,6 +93,50 @@ export function normalizeFurniture(list) {
         d: pos(f.d, c.d),
         h: pos(f.h, c.h),
         color: typeof f.color === 'string' ? f.color : c.color,
+        ...(f.auto ? { auto: true } : {}),
       };
     });
+}
+
+/**
+ * 推定した部屋（浴室・トイレ・洗面・玄関）に合う設備ユニットを、部屋の大きさに合わせて作る。
+ * 長い辺を幅（w）にし、部屋の内側に少し余白をとる。
+ * @param {{name, points}[]} rooms  画像 px 座標
+ * @param {number} scale  m/px
+ */
+export function fixturesForRooms(rooms, scale) {
+  const TYPE_BY_NAME = { 浴室: 'unitbath', トイレ: 'toiletroom', 洗面: 'washroom', 玄関: 'genkan' };
+  const out = [];
+  for (const r of rooms) {
+    const type = TYPE_BY_NAME[r.name];
+    if (!type) continue;
+    const xs = r.points.map((p) => p.x);
+    const ys = r.points.map((p) => p.y);
+    const bw = (Math.max(...xs) - Math.min(...xs)) * scale;
+    const bh = (Math.max(...ys) - Math.min(...ys)) * scale;
+    if (bw < 0.5 || bh < 0.5) continue;
+    const f = createFurniture(type, { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 });
+    const margin = 0.04;
+    const long = Math.max(bw, bh) - margin;
+    const short = Math.min(bw, bh) - margin;
+    // 縦長の部屋は 90° 回して、長い辺を幅にする
+    f.rot = bh > bw ? 90 : 0;
+    if (type === 'washroom') {
+      // 洗面所は壁際に置く（奥行は家具の大きさのまま）
+      f.w = Math.min(long, 1.8);
+      const off = (short + margin - f.d) / 2 / scale;
+      if (f.rot === 0) f.y -= off; else f.x += off;
+    } else if (type === 'toiletroom') {
+      // トイレは便器が長い辺の方向を向く
+      f.rot = bh > bw ? 0 : 90;
+      f.w = short;
+      f.d = long;
+    } else {
+      f.w = long;
+      f.d = short;
+    }
+    f.auto = true;
+    out.push(f);
+  }
+  return out;
 }

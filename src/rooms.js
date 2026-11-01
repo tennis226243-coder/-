@@ -43,10 +43,12 @@ function rgbToHsl(r, g, b) {
 
 /**
  * 不動産の間取り図でよく使われる塗り色を分類する。
- *   1: 和室（畳の緑）  2: 水回り（水色）  3: 洋室・LDK（ベージュ・木目色）  0: その他
+ *   1: 和室（畳の緑）  2: 水回り（水色）  3: 洋室・LDK（ベージュ・木目色）
+ *   4: 薄いグレー（玄関の土間。バルコニーや共用廊下も同じ色なので、広さで区別する）  0: その他
  */
 export function classifyColor(r, g, b) {
   const [h, s, l] = rgbToHsl(r, g, b);
+  if (s < 0.08 && l >= 0.72 && l <= 0.9) return 4;
   if (l < 0.45 || l > 0.97 || s < 0.12) return 0;
   if (h >= 65 && h <= 160) return 1;
   if (h >= 175 && h <= 225) return 2;
@@ -59,6 +61,7 @@ export const ROOM_KINDS = {
   1: { name: '和室', floor: 'tatami' },
   2: { name: '水回り', floor: 'tile-bath' },
   3: { name: '洋室', floor: 'default' },
+  4: { name: '玄関', floor: 'tile' },
 };
 
 /**
@@ -79,7 +82,7 @@ export function detectRoomsByColor(img, opts = {}) {
   const grid = new Uint8Array(gw * gh);
   // 壁などの暗い線を含むセル（部屋の境界）
   const barrier = new Uint8Array(gw * gh);
-  const counts = [0, 0, 0, 0];
+  const counts = [0, 0, 0, 0, 0];
   for (let gy = 0; gy < gh; gy++) {
     for (let gx = 0; gx < gw; gx++) {
       counts.fill(0);
@@ -96,7 +99,7 @@ export function detectRoomsByColor(img, opts = {}) {
       }
       let best = 0;
       let bestN = 0;
-      for (let k = 1; k <= 3; k++) {
+      for (let k = 1; k <= 4; k++) {
         if (counts[k] > bestN) { best = k; bestN = counts[k]; }
       }
       grid[gy * gw + gx] = bestN >= total * 0.35 ? best : 0;
@@ -122,7 +125,7 @@ export function detectRoomsByColor(img, opts = {}) {
 
   const minArea = (opts.minAreaRatio ?? 0.004) * gw * gh;
   const rooms = [];
-  for (const kind of [1, 2, 3]) {
+  for (const kind of [1, 2, 3, 4]) {
     let mask = new Uint8Array(gw * gh);
     for (let i = 0; i < mask.length; i++) mask[i] = grid[i] === kind ? 1 : 0;
     // 文字・畳の目・設備の線などで途切れた部分をつなぐ（クロージング）
