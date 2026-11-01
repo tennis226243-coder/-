@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
+import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { wallSegments, bounds } from './model.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildFurniture3D } from './furniture3d.js';
@@ -383,6 +385,18 @@ export class Viewer3D {
     return new Promise((resolve, reject) => {
       new GLTFExporter().parse(this.model, resolve, reject, { binary: true });
     });
+  }
+
+  /** iPhone / iPad の AR クイックルック用（床が y=0、単位 m） */
+  async exportUSDZ() {
+    const scene = new THREE.Scene();
+    scene.add(this.model.clone());
+    return new USDZExporter().parseAsync(scene, { quickLookCompatible: true });
+  }
+
+  /** 形状のみの OBJ（CAD・3D ソフトでの下図用） */
+  exportOBJ() {
+    return new OBJExporter().parse(this.model);
   }
 }
 

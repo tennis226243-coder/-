@@ -217,3 +217,20 @@ function normalizeLayout(data) {
     furniture: normalizeFurniture(data.furniture),
   };
 }
+
+/**
+ * 縮尺が未設定のときの仮の縮尺（m/px）を推定する。
+ * 壁に囲まれた範囲（外形）が一般的な住戸の広さ（targetArea ㎡）になるように合わせる。
+ * 壁が少なすぎて外形が分からないときは null。
+ */
+export function estimateScaleFromWalls(walls, targetArea = 65) {
+  if (walls.length < 3) return null;
+  const xs = walls.flatMap((w) => [w.a.x, w.b.x]);
+  const ys = walls.flatMap((w) => [w.a.y, w.b.y]);
+  const w = Math.max(...xs) - Math.min(...xs);
+  const h = Math.max(...ys) - Math.min(...ys);
+  if (w <= 0 || h <= 0) return null;
+  // 極端に細長い外形（線が 1 本だけ遠くにある等）は信用しない
+  if (Math.max(w, h) / Math.min(w, h) > 6) return null;
+  return Math.sqrt(targetArea / (w * h));
+}

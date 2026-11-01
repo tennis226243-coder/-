@@ -1,4 +1,6 @@
-import { createProject, normalizeProject, uid, wallLength, polygonArea, OPENING_DEFAULTS } from './model.js';
+import {
+  createProject, normalizeProject, uid, wallLength, polygonArea, OPENING_DEFAULTS, estimateScaleFromWalls,
+} from './model.js';
 import { detectWalls, findOpenings, estimateWallThickness } from './autodetect.js';
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
@@ -162,7 +164,7 @@ function loadImageFromBlob(blob) {
     return;
   }
   const reader = new FileReader();
-  reader.onload = () => setPlanImage(reader.result);
+  reader.onload = () => setPlanImage(reader.result, { detect: $('#auto-3d').checked });
   reader.readAsDataURL(blob);
 }
 
@@ -171,7 +173,9 @@ function setPlanImage(dataUrl, { scale, detect = false } = {}) {
   img.onload = () => {
     edit(() => {
       project.image = { dataUrl, width: img.naturalWidth, height: img.naturalHeight };
-      if (scale) { project.scale = scale; project.calibrated = true; }
+      // 新しい画像の縮尺は分からないので、指定がなければ未設定に戻す
+      project.calibrated = !!scale;
+      if (scale) project.scale = scale;
     });
     editor.setImage(img);
     editor.fit();
@@ -213,7 +217,12 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
   }
   let doors = 0;
   let windows = 0;
+  // 縮尺が未設定なら、壁の外形が一般的な住戸の広さになるよう仮の縮尺を決める
+  const provisional = !project.calibrated
+    ? estimateScaleFromWalls(found.map((w) => ({ a: { x: w.a.x / f, y: w.a.y / f }, b: { x: w.b.x / f, y: w.b.y / f } })))
+    : null;
   edit(() => {
+    if (provisional) project.scale = provisional;
     if ($('#detect-replace').checked) {
       const ids = new Set(project.walls.map((w) => w.id));
       project.walls = [];
@@ -248,8 +257,12 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
   if (!tuning) viewer.hasFitted = false;
   // 2D だけの表示だと 3D 化されたことに気付きにくいので分割表示にする
   if (!tuning && found.length && $('.views').dataset.view === '2d') setView('split');
+  if (provisional) syncInputs();
   setStatus(found.length
-    ? `壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所を検出しました。ツールで修正・追加できます`
+    ? `3D に変換しました（壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所）。` +
+      (provisional
+        ? '縮尺は仮の値（約 65㎡ と想定）です。「縮尺」ツールで寸法線の長さを合わせると実寸になります'
+        : 'ツールで修正・追加できます')
     : '壁を検出できませんでした。詳細設定の明るさ・壁厚を調整してください');
 }
 
@@ -507,14 +520,62 @@ async function openProjectFile(file) {
     setStatus(`読み込みに失敗しました：${err.message}`);
   }
 }
-$('#export-glb').addEventListener('click', async () => {
+const isAppleMobile = () => /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+async function export3D(format) {
+  if (!project.walls.length) {
+    setStatus('先に画像を読み込んで 3D に変換してください');
+    return;
+  }
+  // 日本語のファイル名は環境によって保存できないので英数字にする（2 つ目以降の案は番号付き）
+  const index = project.variants?.findIndex((v) => v.id === project.activeVariant) ?? 0;
+  const name = index > 0 ? `madori-plan${index + 1}` : 'madori';
+  setStatus('3D データを作成しています…');
   try {
-    const glb = await viewer.exportGLB();
-    download(new Blob([glb], { type: 'model/gltf-binary' }), 'madori.glb');
-    setStatus('3Dモデル (GLB) を書き出しました。Blender や Windows の 3D ビューアーなどで開けます');
+    if (format === 'glb') {
+      const glb = await viewer.exportGLB();
+      download(new Blob([glb], { type: 'model/gltf-binary' }), `${name}.glb`);
+      setStatus('3D データ (GLB) を保存しました。Blender や Windows の 3D ビューアーなどで開けます');
+    } else if (format === 'usdz') {
+      const usdz = await viewer.exportUSDZ();
+      const blob = new Blob([usdz], { type: 'model/vnd.usdz+zip' });
+      if (isAppleMobile()) {
+        // iPhone / iPad ではそのまま AR クイックルックで開く
+        const a = document.createElement('a');
+        a.rel = 'ar';
+        a.href = URL.createObjectURL(blob);
+        a.append(document.createElement('img'));
+        a.click();
+        setStatus('AR で表示しています。床に向けて部屋を置いてみてください');
+      } else {
+        download(blob, `${name}.usdz`);
+        setStatus('USDZ を保存しました。iPhone / iPad に送って開くと AR で表示できます');
+      }
+    } else if (format === 'obj') {
+      download(new Blob([viewer.exportOBJ()], { type: 'text/plain' }), `${name}.obj`);
+      setStatus('OBJ（形状のみ）を保存しました');
+    }
   } catch (err) {
     setStatus(`書き出しに失敗しました：${err.message}`);
   }
+}
+for (const b of document.querySelectorAll('[data-export]')) {
+  b.addEventListener('click', () => {
+    toggleExportMenu(false);
+    export3D(b.dataset.export);
+  });
+}
+function toggleExportMenu(open = $('#export-menu').hidden) {
+  $('#export-menu').hidden = !open;
+  $('#export-menu-btn').setAttribute('aria-expanded', String(open));
+}
+$('#export-menu-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleExportMenu();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.export-wrap')) toggleExportMenu(false);
 });
 $('#export-png').addEventListener('click', async () => {
   const blob = await (await fetch(viewer.screenshot())).blob();

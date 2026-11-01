@@ -65,3 +65,18 @@ test('幾何ユーティリティ', () => {
   assert.deepEqual(snapOrtho({ x: 0, y: 0 }, { x: 100, y: 60 }), { x: 100, y: 60 });
   assert.equal(polygonArea([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 }, { x: 0, y: 5 }]), 50);
 });
+
+test('縮尺未設定時の仮の縮尺：外形が約 65㎡ になる', async () => {
+  const { estimateScaleFromWalls } = await import('../src/model.js');
+  const walls = [
+    { a: { x: 0, y: 0 }, b: { x: 1000, y: 0 } },
+    { a: { x: 1000, y: 0 }, b: { x: 1000, y: 650 } },
+    { a: { x: 0, y: 650 }, b: { x: 1000, y: 650 } },
+    { a: { x: 0, y: 0 }, b: { x: 0, y: 650 } },
+  ];
+  const s = estimateScaleFromWalls(walls);
+  assert.ok(Math.abs(1000 * s * 650 * s - 65) < 1e-6);
+  assert.ok(Math.abs(s - 0.01) < 1e-9);
+  assert.equal(estimateScaleFromWalls(walls.slice(0, 2)), null);
+  assert.equal(estimateScaleFromWalls([walls[0], { a: { x: 0, y: 0 }, b: { x: 0, y: 10 } }, walls[0]]), null);
+});
