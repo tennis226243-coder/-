@@ -13,14 +13,22 @@
  * @param {number} [opts.threshold=128]   暗いとみなす輝度 (0-255)
  * @param {number} [opts.minThickness]    壁の最小厚 (px)。省略時は画像サイズから推定
  * @param {number} [opts.minLength]       壁の最小長 (px)
+ * @param {number} [opts.estimatedThickness] 推定済みの壁厚 (px)。省略時はここで推定する
  * @returns {{a:{x,y}, b:{x,y}, thicknessPx:number}[]}
  */
 export function detectWalls(img, opts = {}) {
   const { width, height } = img;
   const maxDim = Math.max(width, height);
   const threshold = opts.threshold ?? 128;
-  const minThickness = opts.minThickness ?? Math.max(3, Math.round(maxDim / 220));
-  const minLength = opts.minLength ?? minThickness * 4;
+  // 壁厚は画像から推定（推定できなければ画像サイズから決める）
+  // 推定値は細い壁の図面で基準を下げるときだけ使う（3px 以下は畳の目や寸法線の可能性が高いので使わない）
+  const fallback = Math.max(3, Math.round(maxDim / 220));
+  const estimated = opts.minThickness ? null : (opts.estimatedThickness ?? estimateWallThickness(img, threshold));
+  const minThickness = opts.minThickness ??
+    (estimated >= 4 ? Math.min(fallback, Math.max(3, Math.round(estimated * 0.7))) : fallback);
+  // 太字の文字などを壁と誤認しないよう、短すぎる線は除く
+  // （壁の断面を「長い線」と誤認しないよう、推定した壁厚の 2 倍以上にもする）
+  const minLength = opts.minLength ?? Math.max(minThickness * 4, (estimated ?? 0) * 2, Math.round(maxDim / 50));
 
   // 壁の最小厚が 3 セル以上になるようにセルサイズを決める
   const cell = Math.max(1, Math.floor(minThickness / 3));
@@ -62,6 +70,67 @@ export function detectWalls(img, opts = {}) {
         ? { a: { x: w.s0, y: w.c }, b: { x: w.s1, y: w.c }, thicknessPx: w.t }
         : { a: { x: w.c, y: w.s0 }, b: { x: w.c, y: w.s1 }, thicknessPx: w.t },
     );
+}
+
+/**
+ * 壁の厚さ（px）を推定する。
+ * 暗い画素ごとに水平・垂直方向の連続長を求め、「一方向に長く、もう一方向に短い」画素
+ * （＝長い線の一部）の短い方の長さを集計し、最も多い値を壁厚とみなす。
+ * 文字や記号は両方向とも短いので除外される。
+ * @returns {number|null}
+ */
+export function estimateWallThickness(img, threshold = 128) {
+  const { data, width, height } = img;
+  const n = width * height;
+  const dark = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = data[i * 4 + 3] / 255;
+    const lum = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) * a + 255 * (1 - a);
+    dark[i] = lum < threshold ? 1 : 0;
+  }
+  const hRun = new Uint16Array(n);
+  const vRun = new Uint16Array(n);
+  for (let y = 0; y < height; y++) {
+    let x = 0;
+    while (x < width) {
+      if (!dark[y * width + x]) { x++; continue; }
+      let e = x;
+      while (e < width && dark[y * width + e]) e++;
+      for (let k = x; k < e; k++) hRun[y * width + k] = Math.min(e - x, 65535);
+      x = e;
+    }
+  }
+  for (let x = 0; x < width; x++) {
+    let y = 0;
+    while (y < height) {
+      if (!dark[y * width + x]) { y++; continue; }
+      let e = y;
+      while (e < height && dark[e * width + x]) e++;
+      for (let k = y; k < e; k++) vRun[k * width + x] = Math.min(e - y, 65535);
+      y = e;
+    }
+  }
+  const maxT = 80;
+  const hist = new Float64Array(maxT + 2);
+  const minLong = Math.max(20, Math.round(Math.max(width, height) / 40));
+  let samples = 0;
+  for (let i = 0; i < n; i++) {
+    if (!dark[i]) continue;
+    const t = Math.min(hRun[i], vRun[i]);
+    const L = Math.max(hRun[i], vRun[i]);
+    if (t < 2 || t > maxT || L < minLong || L < t * 6) continue;
+    hist[t]++;
+    samples++;
+  }
+  if (samples < 100) return null;
+  // 隣の値と合わせてならした上で最頻値をとる（アンチエイリアスで ±1px ぶれるため）
+  let best = 0;
+  let bestT = null;
+  for (let t = 2; t <= maxT; t++) {
+    const v = hist[t - 1] * 0.5 + hist[t] + hist[t + 1] * 0.5;
+    if (v > best) { best = v; bestT = t; }
+  }
+  return bestT;
 }
 
 export function binarize(img, cell, gw, gh, threshold) {
