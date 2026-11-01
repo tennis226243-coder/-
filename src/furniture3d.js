@@ -350,6 +350,76 @@ function armchair(g, size, color) {
   sofa(g, size, color, 1);
 }
 
+// ---- 設備ユニット（部屋まるごと） ----
+/** 子グループに家具を作って配置する */
+function part(g, build, size, color, x, z, rotY = 0) {
+  const sub = new THREE.Group();
+  build(sub, size, color);
+  sub.position.set(x, 0, z);
+  sub.rotation.y = rotY;
+  g.add(sub);
+  return sub;
+}
+function tileFloor(g, w, d, color, step) {
+  const t = 0.02;
+  const m = box(g, w, t, d, 0, t / 2, 0, mat(color, { roughness: 0.4 }));
+  m.castShadow = false;
+  const line = mat('#9aa3aa', { roughness: 0.6 });
+  for (let x = -w / 2 + step; x < w / 2 - 0.01; x += step) box(g, 0.006, 0.002, d, x, t + 0.001, 0, line).castShadow = false;
+  for (let z = -d / 2 + step; z < d / 2 - 0.01; z += step) box(g, w, 0.002, 0.006, 0, t + 0.001, z, line).castShadow = false;
+}
+
+function unitbath(g, { w, d }, color) {
+  tileFloor(g, w, d, '#dfe4e8', 0.2);
+  // 奥の壁に沿って浴槽、手前が洗い場
+  const tubD = Math.min(0.8, d * 0.48);
+  part(g, bathtub, { w: w - 0.04, d: tubD, h: 0.55 }, color, 0, -d / 2 + tubD / 2 + 0.02);
+  // 洗い場側の壁（右）にシャワー・水栓・鏡・棚
+  const wx = w / 2 - 0.03;
+  const zc = (-d / 2 + tubD + d / 2) / 2;
+  cyl(g, 0.012, 0.012, 0.9, wx, 1.35, zc + 0.15, metal('#c9ced3'), 10);
+  const head = cyl(g, 0.05, 0.05, 0.03, wx - 0.05, 1.82, zc + 0.15, metal('#d5dade'), 16);
+  head.rotation.z = Math.PI / 2;
+  box(g, 0.06, 0.08, 0.25, wx - 0.02, 0.85, zc + 0.15, metal('#c9ced3'));
+  box(g, 0.01, 0.5, 0.35, wx, 1.35, zc - 0.25, mat('#cfd8de', { roughness: 0.02, metalness: 1 }));
+  box(g, 0.12, 0.02, 0.45, wx - 0.06, 1.0, zc - 0.25, mat('#ffffff', { roughness: 0.3 }));
+  // 風呂椅子と洗面器
+  cyl(g, 0.14, 0.16, 0.3, wx - 0.35, 0.15, zc + 0.05, mat('#ffffff', { roughness: 0.3 }), 16);
+  cyl(g, 0.13, 0.1, 0.08, wx - 0.12, 0.06, zc + 0.35, mat('#ffffff', { roughness: 0.3 }), 16);
+}
+
+function toiletroom(g, { w, d }, color) {
+  tileFloor(g, w, d, '#e8e6e1', 0.3);
+  // 奥の壁に便器（正面が手前）、横の壁に手洗いと紙巻き器
+  part(g, toilet, { w: 0.42, d: 0.72, h: 0.78 }, color, 0, -d / 2 + 0.38);
+  const sx = -w / 2 + 0.11;
+  rbox(g, 0.2, 0.12, 0.35, sx, 0.82, 0, mat('#ffffff', { roughness: 0.15 }), 0.03);
+  cyl(g, 0.008, 0.008, 0.12, sx - 0.05, 0.94, 0, metal('#c9ced3'), 8);
+  const paper = cyl(g, 0.06, 0.06, 0.11, w / 2 - 0.08, 0.7, -d / 2 + 0.6, mat('#ffffff', { roughness: 0.9 }), 16);
+  paper.rotation.z = Math.PI / 2;
+  box(g, 0.02, 0.03, 0.14, w / 2 - 0.01, 0.76, -d / 2 + 0.6, metal('#c9ced3'));
+}
+
+function washroom(g, { w, d }, color) {
+  // 奥の壁沿いに洗面台（左）と洗濯機（右）
+  part(g, vanity, { w: 0.75, d: 0.5, h: 1.9 }, color, -w / 2 + 0.375, -d / 2 + 0.25);
+  const pan = box(g, 0.64, 0.06, 0.64, w / 2 - 0.33, 0.03, -d / 2 + 0.32, mat('#f2f4f6', { roughness: 0.3 }));
+  pan.castShadow = false;
+  part(g, washer, { w: 0.6, d: 0.6, h: 1.0 }, '#f4f5f7', w / 2 - 0.33, -d / 2 + 0.32).position.y = 0.06;
+}
+
+function genkan(g, { w, d }, color) {
+  // 土間（石）と、奥の上がり框（木）、横に下駄箱、靴
+  const doma = box(g, w, 0.03, d, 0, 0.015, 0, mat(color, { roughness: 0.85 }));
+  doma.castShadow = false;
+  box(g, w, 0.16, 0.1, 0, 0.08, -d / 2 + 0.05, wood('#a87b52'));
+  const gw = Math.min(d - 0.15, 1.0);
+  part(g, (sub, s, c) => cabinet(sub, s, c, { doors: 2 }), { w: gw, d: 0.38, h: 1.0 }, '#c9b79c', w / 2 - 0.19, 0.05, -Math.PI / 2);
+  const shoe = mat('#3b3027', { roughness: 0.6 });
+  for (const [x, z] of [[-0.25, 0.1], [-0.13, 0.1], [0.05, 0.25], [0.15, 0.25]]) rbox(g, 0.09, 0.08, 0.26, x, 0.07, z, shoe, 0.03);
+  box(g, Math.min(0.8, w * 0.6), 0.01, 0.5, -0.1, 0.035, d / 2 - 0.3, fabric('#7a6a58')).castShadow = false;
+}
+
 // ---- 人（シンプルなマネキン風。正面が +z） ----
 const SKIN = '#e9c7a6';
 const HAIR = '#2f2620';
@@ -436,6 +506,7 @@ const BUILDERS = {
   bathtub, toilet, vanity, oshiire, zataku, zabuton,
   getabako: (g, s, c) => cabinet(g, s, c, { doors: 2 }),
   person: personStanding, 'person-sit': personSitting, child,
+  unitbath, toiletroom, washroom, genkan,
 };
 
 /** 家具 1 点の 3D グループ（位置・回転は呼び出し側で設定） */

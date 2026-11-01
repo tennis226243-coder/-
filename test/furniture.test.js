@@ -55,3 +55,25 @@ test('家具のない古い保存データも読み込める', () => {
   assert.deepEqual(p.furniture, []);
   assert.deepEqual(p.variants[0].furniture, []);
 });
+
+test('推定した水回り・玄関に設備ユニットを部屋の大きさで置く', async () => {
+  const { fixturesForRooms } = await import('../src/furniture.js');
+  const rect = (x0, y0, x1, y1) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  const list = fixturesForRooms([
+    { name: '浴室', points: rect(0, 0, 200, 180) }, // 2.0 × 1.8m（横長）
+    { name: 'トイレ', points: rect(300, 0, 380, 140) }, // 0.8 × 1.4m（縦長）
+    { name: '洗面', points: rect(0, 300, 200, 420) }, // 2.0 × 1.2m
+    { name: 'LDK', points: rect(0, 500, 600, 900) },
+  ], 0.01);
+  assert.deepEqual(list.map((f) => f.type), ['unitbath', 'toiletroom', 'washroom']);
+  const [bath, wc, wash] = list;
+  assert.equal(bath.rot, 0);
+  assert.ok(Math.abs(bath.w - 1.96) < 1e-9 && Math.abs(bath.d - 1.76) < 1e-9);
+  assert.deepEqual([bath.x, bath.y], [100, 90]);
+  // 縦長のトイレは回転せず、奥行が長い辺
+  assert.equal(wc.rot, 0);
+  assert.ok(Math.abs(wc.d - 1.36) < 1e-9 && Math.abs(wc.w - 0.76) < 1e-9);
+  // 洗面所は奥の壁際に寄せる
+  assert.ok(wash.y < 360, `wash y ${wash.y}`);
+  assert.ok(list.every((f) => f.auto));
+});

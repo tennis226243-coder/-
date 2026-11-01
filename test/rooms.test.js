@@ -20,7 +20,8 @@ test('間取り図の塗り色の分類', () => {
   assert.equal(classifyColor(240, 220, 170), 3); // 洋室のベージュ
   assert.equal(classifyColor(255, 255, 255), 0); // 白
   assert.equal(classifyColor(30, 30, 30), 0); // 壁の黒
-  assert.equal(classifyColor(200, 200, 200), 0); // バルコニーのグレー
+  assert.equal(classifyColor(215, 215, 215), 4); // 玄関・バルコニーの薄いグレー（広さで区別）
+  assert.equal(classifyColor(150, 150, 150), 0); // 濃いグレー
   assert.equal(classifyColor(234, 88, 12), 0); // 濃いオレンジの線
 });
 

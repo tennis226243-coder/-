@@ -215,6 +215,9 @@ details[open] { display: grid; gap: 8px; }
 .furniture-palette[hidden] { display: none; }
 .palette-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
 .palette-head .hint { flex: 1; }
+.palette-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 6px; scrollbar-width: none; }
+.palette-tabs::-webkit-scrollbar { display: none; }
+.palette-tabs button { min-height: 28px; padding: 2px 10px; border-radius: 14px; font-size: 12px; flex: none; }
 .palette-items { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
 .palette-items button { flex-direction: column; gap: 2px; min-width: 92px; min-height: 56px; font-size: 12px; white-space: normal; }
 .palette-items .size { color: var(--muted); font-size: 11px; }

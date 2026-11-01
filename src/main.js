@@ -5,7 +5,7 @@ import { detectWalls, findOpenings, estimateWallThickness } from './autodetect.j
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
 import { drawSamplePlan, drawColorSamplePlan, SAMPLE_SCALE } from './sample.js';
-import { FURNITURE_CATALOG, createFurniture } from './furniture.js';
+import { FURNITURE_CATALOG, createFurniture, fixturesForRooms } from './furniture.js';
 import { ROOM_FLOORS, floorFromName, detectRoomsByColor } from './rooms.js';
 import {
   ensureVariants, syncActive, switchVariant, addVariant, removeVariant, renameVariant,
@@ -205,6 +205,7 @@ function namedRooms(found, f) {
   const wet = found.filter((r) => r.kind === 2).sort((a, b) => m2(b) - m2(a));
   const nameOf = (r) => {
     if (r.kind === 1) return ['和室', 'tatami'];
+    if (r.kind === 4) return ['玄関', 'tile'];
     if (r.kind === 2) {
       if (m2(r) < 1.8) return ['トイレ', 'tile'];
       if (r === wet[0] && m2(r) >= 2.5) return ['浴室', 'tile-bath'];
@@ -263,9 +264,23 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
     : null;
   // 色から部屋を推定。検出した壁（ドア位置でも途切れない）を境界にして隣の部屋とつながらないようにする
   const scaleForArea = provisional ?? project.scale;
-  const minM2 = { 1: 3, 2: 0.8, 3: 3 };
-  const colorRooms = ($('#detect-rooms').checked ? detectRoomsByColor(imageData, { barriers: found }) : [])
-    .filter((r) => (r.areaPx / (f * f)) * scaleForArea ** 2 >= minM2[r.kind]);
+  // 種類ごとの広さの範囲（㎡）。グレーは広いもの（バルコニー・共用廊下）を除いて玄関とみなす
+  const AREA_RANGE = { 1: [3, Infinity], 2: [0.8, Infinity], 3: [3, Infinity], 4: [0.8, 4.5] };
+  let colorRooms = ($('#detect-rooms').checked ? detectRoomsByColor(imageData, { barriers: found }) : [])
+    .filter((r) => {
+      const m2 = (r.areaPx / (f * f)) * scaleForArea ** 2;
+      return m2 >= AREA_RANGE[r.kind][0] && m2 <= AREA_RANGE[r.kind][1];
+    });
+  // 玄関は 1 か所だけ。細長いグレー（廊下・バルコニー）は除き、いちばん正方形に近いものを採用する
+  const aspect = (r) => {
+    const xs = r.points.map((p) => p.x);
+    const ys = r.points.map((p) => p.y);
+    const a = Math.max(...xs) - Math.min(...xs);
+    const b = Math.max(...ys) - Math.min(...ys);
+    return Math.max(a, b) / Math.max(1, Math.min(a, b));
+  };
+  const entrance = colorRooms.filter((r) => r.kind === 4 && aspect(r) <= 2.2).sort((p, q) => aspect(p) - aspect(q))[0];
+  colorRooms = colorRooms.filter((r) => r.kind !== 4 || r === entrance);
   edit(() => {
     if (provisional) project.scale = provisional;
     if ($('#detect-replace').checked) {
@@ -301,6 +316,11 @@ function runDetection(img = editor.image, { tuning = false } = {}) {
     if ($('#detect-rooms').checked) {
       project.rooms = project.rooms.filter((r) => !r.auto);
       project.rooms.push(...namedRooms(colorRooms, f));
+    }
+    // 浴室・トイレ・洗面に設備ユニットを置く（前回自動で置いた分だけ置き換え）
+    if ($('#detect-fixtures').checked) {
+      project.furniture = project.furniture.filter((x) => !x.auto);
+      project.furniture.push(...fixturesForRooms(project.rooms.filter((r) => r.auto), project.scale));
     }
   });
   detectedOnce = true;
@@ -489,7 +509,7 @@ for (const id of ['#wall-color', '#wall-opacity', '#floor-finish', '#show-rooms'
 }
 $('#threshold').addEventListener('input', (e) => { $('#threshold-out').textContent = e.target.value; });
 // 検出の設定を変えたら、その場で検出し直して結果を見せる
-for (const id of ['#threshold', '#min-thick', '#detect-openings', '#detect-rooms']) {
+for (const id of ['#threshold', '#min-thick', '#detect-openings', '#detect-rooms', '#detect-fixtures']) {
   $(id).addEventListener('change', () => {
     if (detectedOnce && editor.image && $('#detect-replace').checked) runDetection(editor.image, { tuning: true });
   });
@@ -688,9 +708,30 @@ const round2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // ---------- 家具 ----------
+const PALETTE_GROUPS = ['すべて', ...new Set(FURNITURE_CATALOG.map((c) => c.group))];
+let paletteGroup = 'すべて';
+function renderPaletteTabs() {
+  const tabs = $('#palette-tabs');
+  tabs.replaceChildren();
+  for (const name of PALETTE_GROUPS) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(name === paletteGroup));
+    b.classList.toggle('active', name === paletteGroup);
+    b.addEventListener('click', () => {
+      paletteGroup = name;
+      renderPaletteTabs();
+      renderPalette();
+    });
+    tabs.append(b);
+  }
+}
+
 function renderPalette() {
   const box = $('#palette-items');
-  for (const c of FURNITURE_CATALOG) {
+  box.replaceChildren();
+  for (const c of FURNITURE_CATALOG.filter((x) => paletteGroup === 'すべて' || x.group === paletteGroup)) {
     const b = document.createElement('button');
     b.title = `${c.name}（幅 ${c.w}m × 奥行 ${c.d}m × 高さ ${c.h}m）`;
     const sw = document.createElement('span');
@@ -731,6 +772,7 @@ function togglePalette(open = $('#furniture-palette').hidden) {
   if (open && (isNarrow() ? mode !== '2d' : ['3d', 'compare'].includes(mode))) setView(isNarrow() ? '2d' : 'split');
 }
 const isNarrow = () => window.innerWidth < 800;
+renderPaletteTabs();
 renderPalette();
 $('#furniture-btn').addEventListener('click', () => togglePalette());
 $('#palette-close').addEventListener('click', () => togglePalette(false));
