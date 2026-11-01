@@ -42,6 +42,7 @@
           </label>
           <button id="load-sample">サンプル間取りで試す</button>
           <p class="hint">画像はドラッグ＆ドロップ、貼り付け (Ctrl+V) でも読み込めます。</p>
+          <label class="check"><input type="checkbox" id="auto-3d" checked /> 読み込んだらすぐ 3D に変換する</label>
         </section>
 
         <section>
@@ -109,7 +110,9 @@
           <div class="grid2">
             <button id="save-json">プロジェクト保存</button>
             <label class="file-btn">開く<input type="file" id="open-json" accept=".json,application/json" hidden /></label>
-            <button id="export-glb">3Dモデル (.glb)</button>
+            <button id="export-glb" data-export="glb">3Dデータ (.glb)</button>
+            <button data-export="usdz">iPhone AR (.usdz)</button>
+            <button data-export="obj">形状のみ (.obj)</button>
             <button id="export-png">画像 (.png)</button>
           </div>
           <button id="clear-all" class="danger subtle">すべて消去</button>
@@ -143,6 +146,14 @@
         <div class="view view-3d" id="view-3d">
           <div class="overlay-tools">
             <button id="fit-3d">全体表示</button>
+            <div class="export-wrap">
+              <button id="export-menu-btn" class="primary" aria-haspopup="true" aria-expanded="false">3Dデータ保存</button>
+              <div class="export-menu" id="export-menu" hidden>
+                <button data-export="glb"><strong>GLB</strong><span>多くの 3D ソフト・ビューアーで開ける</span></button>
+                <button data-export="usdz"><strong>USDZ</strong><span>iPhone / iPad で AR 表示</span></button>
+                <button data-export="obj"><strong>OBJ</strong><span>形状のみ（CAD・下図用）</span></button>
+              </div>
+            </div>
             <button id="walk">ウォークスルー</button>
           </div>
           <div class="walk-help" id="walk-help" hidden>W A S D で移動 / マウスで視点 / Shift で早歩き / Esc で終了</div>
