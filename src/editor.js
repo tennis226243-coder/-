@@ -3,7 +3,7 @@ import {
   uid, dist, projectOnSegment, findNearestWall, snapToEndpoint, snapOrtho,
   OPENING_DEFAULTS, bounds, wallLength, polygonArea,
 } from './model.js';
-import { hitFurniture, furnitureCorners } from './furniture.js';
+import { hitFurniture, furnitureCorners, isPerson } from './furniture.js';
 import { ROOM_FLOORS } from './rooms.js';
 
 const HIT_PX = 10; // 画面上のヒット判定半径
@@ -684,6 +684,10 @@ export class Editor2D {
   }
 
   drawFurniture(f) {
+    if (isPerson(f)) {
+      this.drawPerson(f);
+      return;
+    }
     const { ctx } = this;
     const pr = this.project;
     const z = this.view.zoom;
@@ -705,6 +709,46 @@ export class Editor2D {
     ctx.stroke();
     // 画面上で十分な大きさがあるときだけ名前を表示
     if (Math.min(f.w, f.d) / pr.scale * z > 28) this.label(f.name, f, '#1f2937', 'rgba(255,255,255,0.75)');
+  }
+
+  /** 人を真上から見た形（肩の楕円と頭、正面に向きの印） */
+  drawPerson(f) {
+    const { ctx } = this;
+    const pr = this.project;
+    const z = this.view.zoom;
+    const sel = this.isSelected('furniture', f.id);
+    const hw = f.w / pr.scale / 2;
+    const body = Math.min(f.d, 0.3) / pr.scale / 2;
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.rotate((f.rot * Math.PI) / 180);
+    // 座っている人は体を後ろ寄りに、足を前に描く
+    const by = f.type === 'person-sit' ? -f.d / pr.scale / 2 + body : 0;
+    if (f.type === 'person-sit') {
+      ctx.fillStyle = hexAlpha('#3a3f47', 0.7);
+      ctx.fillRect(-hw * 0.6, by, hw * 1.2, f.d / pr.scale - body * 2);
+    }
+    ctx.beginPath();
+    ctx.ellipse(0, by, hw, body, 0, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(f.color, 0.9);
+    ctx.fill();
+    ctx.strokeStyle = sel ? '#2563eb' : 'rgba(31,41,55,0.8)';
+    ctx.lineWidth = (sel ? 3 : 1.2) / z;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, by, hw * 0.42, 0, Math.PI * 2);
+    ctx.fillStyle = '#e9c7a6';
+    ctx.fill();
+    ctx.stroke();
+    // 向き（正面）の印
+    ctx.beginPath();
+    ctx.moveTo(-hw * 0.25, by + body + 2 / z);
+    ctx.lineTo(hw * 0.25, by + body + 2 / z);
+    ctx.lineTo(0, by + body + hw * 0.4);
+    ctx.closePath();
+    ctx.fillStyle = sel ? '#2563eb' : 'rgba(31,41,55,0.8)';
+    ctx.fill();
+    ctx.restore();
   }
 
   drawGrid() {

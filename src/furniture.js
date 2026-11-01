@@ -4,6 +4,10 @@
 import { uid } from './model.js';
 
 export const FURNITURE_CATALOG = [
+  // 人（広さの目安）。w = 肩幅、d = 体の厚み（座りは足先まで）、h = 身長（座りは座高込みの高さ）、color = 服の色
+  { type: 'person', name: '大人（立ち）', group: '人', w: 0.46, d: 0.28, h: 1.7, color: '#4b6a8a', person: true },
+  { type: 'person-sit', name: '大人（座り）', group: '人', w: 0.46, d: 0.62, h: 1.3, color: '#8a5a4b', person: true },
+  { type: 'child', name: '子ども', group: '人', w: 0.34, d: 0.2, h: 1.15, color: '#d08a3a', person: true },
   { type: 'sofa3', name: 'ソファ（3人）', group: 'リビング', w: 1.9, d: 0.85, h: 0.8, color: '#7d8fa3' },
   { type: 'sofa2', name: 'ソファ（2人）', group: 'リビング', w: 1.5, d: 0.85, h: 0.8, color: '#7d8fa3' },
   { type: 'sofaL', name: 'L字ソファ', group: 'リビング', w: 2.4, d: 1.6, h: 0.8, color: '#8b8478' },
@@ -38,6 +42,7 @@ export const FURNITURE_CATALOG = [
 ];
 
 export const catalogItem = (type) => FURNITURE_CATALOG.find((c) => c.type === type);
+export const isPerson = (f) => !!catalogItem(f.type)?.person;
 
 export function createFurniture(type, center) {
   const c = catalogItem(type);
