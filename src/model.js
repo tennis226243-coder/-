@@ -156,6 +156,7 @@ export function normalizeProject(data) {
   const project = {
     ...base,
     scale: positive(data.scale, base.scale),
+    calibrated: data.calibrated === true,
     image: data.image?.dataUrl ? data.image : null,
     ...normalizeLayout(data),
   };

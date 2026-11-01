@@ -1,5 +1,5 @@
 import { createProject, normalizeProject, uid, wallLength, polygonArea, OPENING_DEFAULTS } from './model.js';
-import { detectWalls, findOpenings } from './autodetect.js';
+import { detectWalls, findOpenings, estimateWallThickness } from './autodetect.js';
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
 import { drawSamplePlan, SAMPLE_SCALE } from './sample.js';
@@ -100,6 +100,7 @@ function refresh({ live = false } = {}) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(autosave, 400);
   }
+  renderSteps();
   $('#undo').disabled = !undoStack.length;
   $('#redo').disabled = !redoStack.length;
   $('#empty-2d').hidden = !!(project.image || project.walls.length || project.rooms.length);
@@ -112,7 +113,7 @@ function refresh({ live = false } = {}) {
 
 function viewOptions() {
   return {
-    showPlanImage: $('#show-plan').checked,
+    floorFinish: $('#floor-finish').value,
     showRooms: $('#show-rooms').checked,
     showFurniture: $('#show-furniture').checked,
     wallColor: $('#wall-color').value,
@@ -120,8 +121,28 @@ function viewOptions() {
   };
 }
 
+let toastTimer = null;
 function setStatus(text) {
   $('#status').textContent = text;
+  // スマホではページ下部のステータスが見えないので、一時的なお知らせとして表示する
+  if (window.innerWidth < 800 && text) {
+    const toast = $('#toast');
+    toast.textContent = text;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 3500);
+  }
+}
+
+/** 手順の完了マーク */
+function renderSteps() {
+  const done = {
+    1: !!project.image,
+    2: !!project.calibrated,
+    3: project.walls.length > 0,
+    4: (project.variants?.length ?? 0) > 1 || (project.furniture?.length ?? 0) > 0,
+  };
+  for (const [n, ok] of Object.entries(done)) $(`#step-${n}`)?.classList.toggle('done', ok);
 }
 
 // ---------- 画像 ----------
@@ -150,7 +171,7 @@ function setPlanImage(dataUrl, { scale, detect = false } = {}) {
   img.onload = () => {
     edit(() => {
       project.image = { dataUrl, width: img.naturalWidth, height: img.naturalHeight };
-      if (scale) project.scale = scale;
+      if (scale) { project.scale = scale; project.calibrated = true; }
     });
     editor.setImage(img);
     editor.fit();
@@ -163,7 +184,8 @@ function setPlanImage(dataUrl, { scale, detect = false } = {}) {
   img.src = dataUrl;
 }
 
-function runDetection(img = editor.image) {
+let detectedOnce = false;
+function runDetection(img = editor.image, { tuning = false } = {}) {
   if (!img) {
     setStatus('先に間取り図の画像を読み込んでください');
     return;
@@ -180,7 +202,11 @@ function runDetection(img = editor.image) {
   const minThick = Number($('#min-thick').value);
   const imageData = g.getImageData(0, 0, c.width, c.height);
   const threshold = Number($('#threshold').value);
-  let found = detectWalls(imageData, { threshold, minThickness: minThick > 0 ? minThick * f : undefined });
+  const estimated = estimateWallThickness(imageData, threshold);
+  $('#min-thick').placeholder = estimated ? `自動 ${Math.round(estimated / f)}` : '自動';
+  let found = detectWalls(imageData, {
+    threshold, minThickness: minThick > 0 ? minThick * f : undefined, estimatedThickness: estimated,
+  });
   let foundOpenings = [];
   if ($('#detect-openings').checked) {
     ({ walls: found, openings: foundOpenings } = findOpenings(found, imageData, { threshold }));
@@ -218,9 +244,10 @@ function runDetection(img = editor.image) {
       else windows++;
     }
   });
-  viewer.hasFitted = false;
+  detectedOnce = true;
+  if (!tuning) viewer.hasFitted = false;
   // 2D だけの表示だと 3D 化されたことに気付きにくいので分割表示にする
-  if (found.length && $('.views').dataset.view === '2d') setView('split');
+  if (!tuning && found.length && $('.views').dataset.view === '2d') setView('split');
   setStatus(found.length
     ? `壁 ${found.length} 本・ドア ${doors} 箇所・窓 ${windows} 箇所を検出しました。ツールで修正・追加できます`
     : '壁を検出できませんでした。詳細設定の明るさ・壁厚を調整してください');
@@ -239,7 +266,7 @@ function openCalibration(px) {
 calibDialog.addEventListener('close', () => {
   const len = Number($('#calib-len').value);
   if (calibDialog.returnValue === 'ok' && len > 0 && calibPx > 0) {
-    edit(() => { project.scale = len / calibPx; });
+    edit(() => { project.scale = len / calibPx; project.calibrated = true; });
     viewer.hasFitted = false;
     syncInputs();
     editor.setTool('select');
@@ -359,7 +386,7 @@ function syncInputs() {
 $('#px-per-m').addEventListener('change', (e) => {
   const v = Number(e.target.value);
   if (v > 0) {
-    edit(() => { project.scale = 1 / v; });
+    edit(() => { project.scale = 1 / v; project.calibrated = true; });
     viewer.hasFitted = false;
   }
 });
@@ -373,10 +400,16 @@ $('#wall-thick').addEventListener('change', (e) => {
 });
 $('#apply-thick').addEventListener('click', () =>
   edit(() => { for (const w of project.walls) w.thickness = project.wallThickness; }));
-for (const id of ['#wall-color', '#wall-opacity', '#show-plan', '#show-rooms', '#show-furniture']) {
+for (const id of ['#wall-color', '#wall-opacity', '#floor-finish', '#show-rooms', '#show-furniture']) {
   $(id).addEventListener('input', () => refresh({ live: true }));
 }
 $('#threshold').addEventListener('input', (e) => { $('#threshold-out').textContent = e.target.value; });
+// 検出の設定を変えたら、その場で検出し直して結果を見せる
+for (const id of ['#threshold', '#min-thick', '#detect-openings']) {
+  $(id).addEventListener('change', () => {
+    if (detectedOnce && editor.image && $('#detect-replace').checked) runDetection(editor.image, { tuning: true });
+  });
+}
 
 // ---------- ツール・表示切替 ----------
 window.addEventListener('keydown', (e) => {
@@ -752,4 +785,4 @@ setStatus(project.walls.length || project.image
   : '間取り図の画像を読み込むか、「サンプル間取りで試す」を押してください');
 
 // テスト・デバッグ用
-window.madori = { get project() { return project; }, editor, viewer, get compare() { return cmp; } };
+window.madori = { get project() { return project; }, editor, viewer, get compare() { return cmp; }, createFurniture, refresh };

@@ -4,9 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { wallSegments, bounds } from './model.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildFurniture3D } from './furniture3d.js';
+import { floorTexture } from './textures.js';
 
 const EYE_HEIGHT = 1.6;
+const BASEBOARD_H = 0.06;
 
 export class Viewer3D {
   constructor(container) {
@@ -14,12 +17,20 @@ export class Viewer3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // 写真のような明暗の出方にする
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xeef1f5);
+    // 室内の照り返し（家具や床のつや）用の環境光
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.45;
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.05, 500);
     this.camera.position.set(8, 10, 12);
@@ -33,11 +44,13 @@ export class Viewer3D {
     this.keys = new Set();
     this.walkMode = false;
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xb0a890, 1.6);
+    const hemi = new THREE.HemisphereLight(0xfdfbf7, 0xb8ab98, 1.1);
     this.scene.add(hemi);
-    this.sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    // やや暖かい色の太陽光
+    this.sun = new THREE.DirectionalLight(0xfff3e2, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.radius = 3;
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
@@ -56,10 +69,10 @@ export class Viewer3D {
     this.scene.add(this.model);
 
     this.textureCache = new Map();
-    this.options = { showPlanImage: true, wallColor: '#f4f1ea', wallOpacity: 1, showRooms: true };
+    this.options = { floorFinish: 'wood-light', wallColor: '#f4f1ea', wallOpacity: 1, showRooms: true };
     this.hasFitted = false;
 
-    this.clock = new THREE.Clock();
+    this.lastTime = performance.now();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     window.addEventListener('keydown', (e) => this.walkMode && this.keys.add(e.code));
@@ -77,7 +90,9 @@ export class Viewer3D {
   }
 
   tick() {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    const now = performance.now();
+    const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+    this.lastTime = now;
     if (this.walkMode && this.walk.isLocked) {
       const speed = (this.keys.has('ShiftLeft') ? 3 : 1.4) * dt;
       if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) this.walk.moveForward(speed);
@@ -111,6 +126,7 @@ export class Viewer3D {
       opacity: opts.wallOpacity,
     });
     const capMat = new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 0.9 });
+    const baseboardMat = new THREE.MeshStandardMaterial({ color: 0x9a7b5e, roughness: 0.6 });
     const doorMat = new THREE.MeshStandardMaterial({ color: 0xa8784f, roughness: 0.6 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x5c6670, roughness: 0.5, metalness: 0.3 });
     const glassMat = new THREE.MeshPhysicalMaterial({
@@ -156,6 +172,15 @@ export class Viewer3D {
         mesh.castShadow = mesh.receiveShadow = true;
         mesh.name = `Wall_${wall.id}`;
         walls.add(mesh);
+        // 巾木（床に接する区間の両面）
+        if (seg.bottom === 0 && opts.wallOpacity >= 1) {
+          const bb = new THREE.Mesh(new THREE.BoxGeometry(s1 - s0, BASEBOARD_H, t + 0.016), baseboardMat);
+          bb.position.copy(at((s0 + s1) / 2, BASEBOARD_H / 2));
+          bb.rotation.y = angle;
+          bb.receiveShadow = true;
+          bb.name = `Baseboard_${wall.id}`;
+          walls.add(bb);
+        }
       }
 
       for (const o of openings) {
@@ -217,42 +242,59 @@ export class Viewer3D {
       }
     }
 
-    // 床：間取り画像を貼った板 / 部屋ごとの床
+    // 床：間取り図をそのまま貼る / 床材（フローリング・タイル）を部屋ごとに貼る
     const floors = new THREE.Group();
     floors.name = 'Floors';
-    if (project.image && opts.showPlanImage) {
-      const tex = this.planTexture(project.image.dataUrl);
-      const w = project.image.width * s;
-      const d = project.image.height * s;
-      const plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(w, d),
-        new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }),
-      );
-      plane.rotation.x = -Math.PI / 2;
-      plane.position.set(w / 2 - this.offset.x, 0, d / 2 - this.offset.z);
-      plane.receiveShadow = true;
-      plane.name = 'PlanImage';
-      floors.add(plane);
-    }
-    if (opts.showRooms) {
-      for (const room of project.rooms) {
-        // Shape は XY 平面。x→X, y→-Z として作り、X 軸回りに -90° 回転で XZ 平面へ
-        const shape = new THREE.Shape(room.points.map((p) => {
-          const v = P(p);
-          return new THREE.Vector2(v.x, -v.z);
-        }));
-        const mesh = new THREE.Mesh(
-          new THREE.ShapeGeometry(shape),
-          new THREE.MeshStandardMaterial({
-            color: room.color, roughness: 0.8, side: THREE.DoubleSide,
-            transparent: !!(project.image && opts.showPlanImage), opacity: project.image && opts.showPlanImage ? 0.75 : 1,
-          }),
+    const finish = opts.floorFinish ?? 'plan';
+    const planMode = finish === 'plan' || !floorTexture(finish, this.renderer);
+    const shapeOf = (points) => new THREE.Shape(points.map((p) => {
+      // Shape は XY 平面。x→X, y→-Z として作り、X 軸回りに -90° 回転で XZ 平面へ（UV はメートル単位）
+      const v = P(p);
+      return new THREE.Vector2(v.x, -v.z);
+    }));
+    const addFloor = (shape, material, name, y) => {
+      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = y;
+      mesh.receiveShadow = true;
+      mesh.name = name;
+      floors.add(mesh);
+    };
+    if (planMode) {
+      if (project.image) {
+        const tex = this.planTexture(project.image.dataUrl);
+        const w = project.image.width * s;
+        const d = project.image.height * s;
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, d),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }),
         );
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.y = 0.005;
-        mesh.receiveShadow = true;
-        mesh.name = `Room_${room.name || room.id}`;
-        floors.add(mesh);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set(w / 2 - this.offset.x, 0, d / 2 - this.offset.z);
+        plane.receiveShadow = true;
+        plane.name = 'PlanImage';
+        floors.add(plane);
+      }
+      if (opts.showRooms) {
+        for (const room of project.rooms) {
+          addFloor(shapeOf(room.points), new THREE.MeshStandardMaterial({
+            color: room.color, roughness: 0.8, side: THREE.DoubleSide,
+            transparent: !!project.image, opacity: project.image ? 0.75 : 1,
+          }), `Room_${room.name || room.id}`, 0.005);
+        }
+      }
+    } else {
+      const mat = new THREE.MeshStandardMaterial({
+        map: floorTexture(finish, this.renderer), roughness: 0.55, side: THREE.DoubleSide,
+      });
+      if (project.rooms.length && opts.showRooms) {
+        for (const room of project.rooms) addFloor(shapeOf(room.points), mat, `Room_${room.name || room.id}`, 0.002);
+      } else if (project.walls.length) {
+        // 部屋が未作成なら、壁に囲まれた範囲全体に床を貼る
+        const xs = project.walls.flatMap((w) => [w.a.x, w.b.x]);
+        const ys = project.walls.flatMap((w) => [w.a.y, w.b.y]);
+        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+        addFloor(shapeOf([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]), mat, 'Floor', 0.002);
       }
     }
 

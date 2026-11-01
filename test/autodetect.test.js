@@ -129,3 +129,34 @@ test('直交する壁をまたいで隙間を繋がない', async () => {
   const r = findOpenings(walls, img);
   assert.equal(r.openings.length, 0);
 });
+
+test('細い壁（4px）の図面でも壁厚を推定して検出する', async () => {
+  const { estimateWallThickness } = await import('../src/autodetect.js');
+  const { img, fill } = makeImage(1000, 800);
+  // 厚さ 4px の外壁と間仕切り
+  fill(100, 100, 900, 104);
+  fill(100, 700, 900, 704);
+  fill(100, 100, 104, 704);
+  fill(896, 100, 900, 704);
+  fill(500, 100, 504, 400);
+  // 文字のような短い線（2px）と寸法線（1px）
+  for (let i = 0; i < 20; i++) fill(200 + i * 12, 300, 202 + i * 12, 312);
+  fill(100, 60, 900, 61);
+  assert.equal(estimateWallThickness(img), 4);
+  const walls = detectWalls(img);
+  assert.equal(walls.length, 5, JSON.stringify(walls.map((w) => [w.a, w.b])));
+  // 推定なし（画像サイズから 5px）だと細い壁は消えてしまう
+  assert.ok(detectWalls(img, { minThickness: 5 }).length < 5);
+});
+
+test('太い壁の図面では大きな厚さを推定する', async () => {
+  const { estimateWallThickness } = await import('../src/autodetect.js');
+  const { img, fill } = makeImage(600, 400);
+  fill(50, 50, 550, 66);
+  fill(50, 334, 550, 350);
+  fill(50, 50, 66, 350);
+  fill(534, 50, 550, 350);
+  const t = estimateWallThickness(img);
+  assert.ok(Math.abs(t - 16) <= 1, `t=${t}`);
+  assert.equal(detectWalls(img).length, 4);
+});
