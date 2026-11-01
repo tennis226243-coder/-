@@ -350,6 +350,76 @@ function armchair(g, size, color) {
   sofa(g, size, color, 1);
 }
 
+// ---- 人（シンプルなマネキン風。正面が +z） ----
+const SKIN = '#e9c7a6';
+const HAIR = '#2f2620';
+function limb(g, r, len, x, y, z, material, rotX = 0) {
+  const m = add(g, new THREE.CapsuleGeometry(r, Math.max(0.01, len - r * 2), 4, 10), material, x, y, z);
+  m.rotation.x = rotX;
+  return m;
+}
+function head(g, r, y, z = 0) {
+  add(g, new THREE.SphereGeometry(r, 20, 16), mat(SKIN, { roughness: 0.6 }), 0, y, z);
+  const hair = add(g, new THREE.SphereGeometry(r * 1.04, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), mat(HAIR, { roughness: 0.8 }), 0, y + r * 0.05, z - r * 0.06);
+  hair.rotation.x = -0.25;
+}
+
+function personStanding(g, { w, h }, color) {
+  const s = h / 1.7; // 身長 1.7m を基準に全体を拡大縮小
+  const cloth = fabric(color);
+  const pants = fabric('#3a3f47');
+  const skin = mat(SKIN, { roughness: 0.6 });
+  const legLen = 0.8 * s;
+  const hip = w * 0.22;
+  for (const sx of [-1, 1]) {
+    limb(g, 0.065 * s, legLen, sx * hip, legLen / 2, 0, pants);
+    rbox(g, 0.1 * s, 0.06 * s, 0.24 * s, sx * hip, 0.03 * s, 0.04 * s, mat('#2b2b2b'), 0.02);
+  }
+  const torsoH = 0.62 * s;
+  rbox(g, w * 0.82, torsoH, 0.24 * s, 0, legLen + torsoH / 2 - 0.02 * s, 0, cloth, 0.08 * s);
+  for (const sx of [-1, 1]) {
+    limb(g, 0.048 * s, 0.6 * s, sx * (w / 2 - 0.02 * s), legLen + torsoH - 0.32 * s, 0, cloth);
+    add(g, new THREE.SphereGeometry(0.045 * s, 12, 10), skin, sx * (w / 2 - 0.02 * s), legLen + torsoH - 0.64 * s, 0);
+  }
+  limb(g, 0.045 * s, 0.1 * s, 0, legLen + torsoH + 0.03 * s, 0, skin);
+  head(g, 0.105 * s, h - 0.11 * s);
+}
+
+function personSitting(g, { w, d, h }, color) {
+  // 座面の高さ 0.45m の椅子に座った姿勢（椅子は含まない）
+  const s = h / 1.3;
+  const cloth = fabric(color);
+  const pants = fabric('#3a3f47');
+  const skin = mat(SKIN, { roughness: 0.6 });
+  const seatH = 0.45 * s;
+  const backZ = -d / 2 + 0.12 * s;
+  const kneeZ = backZ + 0.45 * s;
+  const hip = w * 0.22;
+  for (const sx of [-1, 1]) {
+    limb(g, 0.065 * s, 0.48 * s, sx * hip, seatH, (backZ + kneeZ) / 2, pants, Math.PI / 2);
+    limb(g, 0.055 * s, seatH, sx * hip, seatH / 2, kneeZ, pants);
+    rbox(g, 0.1 * s, 0.06 * s, 0.24 * s, sx * hip, 0.03 * s, kneeZ + 0.06 * s, mat('#2b2b2b'), 0.02);
+  }
+  const torsoH = 0.6 * s;
+  rbox(g, w * 0.82, torsoH, 0.24 * s, 0, seatH + torsoH / 2, backZ, cloth, 0.08 * s);
+  for (const sx of [-1, 1]) {
+    // 腕は前に出して膝の上
+    limb(g, 0.045 * s, 0.3 * s, sx * (w / 2 - 0.03 * s), seatH + torsoH - 0.17 * s, backZ, cloth);
+    limb(g, 0.042 * s, 0.32 * s, sx * (w / 2 - 0.05 * s), seatH + torsoH - 0.32 * s, backZ + 0.15 * s, cloth, Math.PI / 2);
+    add(g, new THREE.SphereGeometry(0.042 * s, 12, 10), skin, sx * (w / 2 - 0.05 * s), seatH + torsoH - 0.32 * s, backZ + 0.32 * s);
+  }
+  limb(g, 0.045 * s, 0.1 * s, 0, seatH + torsoH + 0.04 * s, backZ, skin);
+  head(g, 0.105 * s, h - 0.11 * s, backZ);
+}
+
+function child(g, size, color) {
+  // 子どもは頭身を大きめにする
+  personStanding(g, size, color);
+  g.children.forEach((m) => {
+    if (m.geometry?.type === 'SphereGeometry' && m.position.y > size.h * 0.8) m.scale.multiplyScalar(1.25);
+  });
+}
+
 function seeded(seed) {
   let s = seed >>> 0 || 1;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -365,6 +435,7 @@ const BUILDERS = {
   washer, shelf, plant, floorlamp, curtain,
   bathtub, toilet, vanity, oshiire, zataku, zabuton,
   getabako: (g, s, c) => cabinet(g, s, c, { doors: 2 }),
+  person: personStanding, 'person-sit': personSitting, child,
 };
 
 /** 家具 1 点の 3D グループ（位置・回転は呼び出し側で設定） */
