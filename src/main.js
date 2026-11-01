@@ -3,6 +3,7 @@ import { detectWalls, findOpenings } from './autodetect.js';
 import { Editor2D } from './editor.js';
 import { Viewer3D } from './viewer3d.js';
 import { drawSamplePlan, SAMPLE_SCALE } from './sample.js';
+import { FURNITURE_CATALOG, createFurniture } from './furniture.js';
 import {
   ensureVariants, syncActive, switchVariant, addVariant, removeVariant, renameVariant,
   variantProject, diffLayouts, summarize,
@@ -113,6 +114,7 @@ function viewOptions() {
   return {
     showPlanImage: $('#show-plan').checked,
     showRooms: $('#show-rooms').checked,
+    showFurniture: $('#show-furniture').checked,
     wallColor: $('#wall-color').value,
     wallOpacity: Number($('#wall-opacity').value),
   };
@@ -315,11 +317,35 @@ function renderSelection(sel) {
     p.className = 'hint';
     p.textContent = `面積 ${area.toFixed(2)}㎡（約 ${(area / 1.62).toFixed(1)} 畳）`;
     fields.append(p);
+  } else if (sel.kind === 'furniture') {
+    $('#sel-title').textContent = item.name;
+    const actions = document.createElement('div');
+    actions.className = 'grid2';
+    const button = (label, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      actions.append(b);
+    };
+    button('↻ 右に90°', () => edit(() => { item.rot = (item.rot + 90) % 360; }));
+    button('↺ 左に90°', () => edit(() => { item.rot = (item.rot + 270) % 360; }));
+    button('複製', () => {
+      const copy = { ...item, id: uid('f'), x: item.x + 0.3 / project.scale, y: item.y + 0.3 / project.scale };
+      edit(() => project.furniture.push(copy));
+      editor.select({ kind: 'furniture', id: copy.id });
+    });
+    fields.append(actions);
+    add('名前', item.name, (v) => { item.name = v; }, { type: 'text', unit: '' });
+    add('幅', item.w, (v) => { item.w = v; }, { min: 0.05 });
+    add('奥行', item.d, (v) => { item.d = v; }, { min: 0.05 });
+    add('高さ', item.h, (v) => { item.h = v; }, { min: 0.01 });
+    add('回転', item.rot, (v) => { item.rot = ((v % 360) + 360) % 360; }, { step: 15, min: -360, unit: '°' });
+    add('色', item.color, (v) => { item.color = v; }, { type: 'color', unit: '' });
   }
 }
 
 function findItem(sel) {
-  const list = { wall: project.walls, opening: project.openings, room: project.rooms }[sel.kind];
+  const list = { wall: project.walls, opening: project.openings, room: project.rooms, furniture: project.furniture }[sel.kind];
   return list?.find((x) => x.id === sel.id);
 }
 
@@ -347,12 +373,17 @@ $('#wall-thick').addEventListener('change', (e) => {
 });
 $('#apply-thick').addEventListener('click', () =>
   edit(() => { for (const w of project.walls) w.thickness = project.wallThickness; }));
-for (const id of ['#wall-color', '#wall-opacity', '#show-plan', '#show-rooms']) {
+for (const id of ['#wall-color', '#wall-opacity', '#show-plan', '#show-rooms', '#show-furniture']) {
   $(id).addEventListener('input', () => refresh({ live: true }));
 }
 $('#threshold').addEventListener('input', (e) => { $('#threshold-out').textContent = e.target.value; });
 
 // ---------- ツール・表示切替 ----------
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea, select, dialog')) {
+    togglePalette();
+  }
+});
 const TOOL_KEYS = { v: 'select', w: 'wall', d: 'door', n: 'window', r: 'room', m: 'calibrate', h: 'pan' };
 function updateToolButtons() {
   for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === editor.tool);
@@ -471,6 +502,11 @@ function autosave() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...project, image: null })); } catch { /* 保存不可 */ }
   }
 }
+// 閉じる・アプリを切り替える直前の変更も失わないよう、すぐに保存する
+window.addEventListener('pagehide', () => { clearTimeout(saveTimer); autosave(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { clearTimeout(saveTimer); autosave(); }
+});
 function loadAutosave() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -482,6 +518,54 @@ function loadAutosave() {
 
 const round2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---------- 家具 ----------
+function renderPalette() {
+  const box = $('#palette-items');
+  for (const c of FURNITURE_CATALOG) {
+    const b = document.createElement('button');
+    b.title = `${c.name}（幅 ${c.w}m × 奥行 ${c.d}m × 高さ ${c.h}m）`;
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = c.color;
+    const size = document.createElement('span');
+    size.className = 'size';
+    size.textContent = `${Math.round(c.w * 100)}×${Math.round(c.d * 100)}`;
+    b.append(sw, c.name, size);
+    b.addEventListener('click', () => placeFurniture(c.type));
+    box.append(b);
+  }
+}
+
+function placeFurniture(type) {
+  // 図面の表示中央に置く（続けて置くときは少しずらす）
+  const { view, canvas, dpr } = editor;
+  const palette = $('#furniture-palette');
+  const covered = palette.hidden ? 0 : palette.offsetHeight + 8; // パレットで隠れている下側
+  const cx = (canvas.width / dpr / 2 - view.x) / view.zoom;
+  const cy = ((canvas.height / dpr - covered) / 2 - view.y) / view.zoom;
+  const shift = (project.furniture.length % 5) * (0.2 / project.scale);
+  const f = createFurniture(type, { x: cx + shift, y: cy + shift });
+  edit(() => project.furniture.push(f));
+  editor.setTool('select');
+  updateToolButtons();
+  editor.select({ kind: 'furniture', id: f.id });
+  // スマホでは図面が狭いので、置いたらパレットを閉じてすぐ動かせるようにする
+  if (isNarrow()) togglePalette(false);
+  setStatus(`${f.name}を置きました。ドラッグで移動、選択中のパネルで回転・サイズ変更ができます`);
+}
+
+function togglePalette(open = $('#furniture-palette').hidden) {
+  $('#furniture-palette').hidden = !open;
+  $('#furniture-btn').classList.toggle('active', open);
+  // 図面が見えていないと置けないので 2D を表示する（スマホは分割表示だと狭いので 2D のみ）
+  const mode = $('.views').dataset.view;
+  if (open && (isNarrow() ? mode !== '2d' : ['3d', 'compare'].includes(mode))) setView(isNarrow() ? '2d' : 'split');
+}
+const isNarrow = () => window.innerWidth < 800;
+renderPalette();
+$('#furniture-btn').addEventListener('click', () => togglePalette());
+$('#palette-close').addEventListener('click', () => togglePalette(false));
 
 // ---------- リノベーション案 ----------
 function renderVariants() {
@@ -582,13 +666,32 @@ function updateCompare() {
   const pb = variantProject(project, prevB);
   const d = diffLayouts(pa, pb);
   const opts = viewOptions();
-  a.update(pa, { ...opts, highlightWalls: new Map([...d.removedWalls].map((id) => [id, '#e11d48'])), ghostWalls: [] });
+  a.update(pa, {
+    ...opts,
+    highlightWalls: new Map([...d.removedWalls].map((id) => [id, '#e11d48'])),
+    highlightFurniture: new Map(),
+    ghostWalls: [],
+  });
   b.update(pb, {
     ...opts,
     highlightWalls: new Map([...d.addedWalls].map((id) => [id, '#16a34a'])),
+    highlightFurniture: new Map(),
     ghostWalls: pa.walls.filter((w) => d.removedWalls.has(w.id)),
   });
   renderCompareSummary(pa, pb, d);
+}
+
+/** 変更のあった項目だけを文章にする */
+function changeParts(removed, added, moved, d) {
+  const openings = new Set([...d.removedOpenings, ...d.addedOpenings]).size;
+  const furniture = new Set([...d.removedFurniture, ...d.addedFurniture]).size;
+  return [
+    removed && `壁の撤去 ${removed} 本`,
+    added && `壁の新設 ${added} 本`,
+    moved && `壁の移動・変更 ${moved} 本`,
+    openings && `ドア・窓の変更 ${openings} 箇所`,
+    furniture && `家具の追加・移動・撤去 ${furniture} 点`,
+  ].filter(Boolean);
 }
 
 function renderCompareSummary(pa, pb, d) {
@@ -607,6 +710,7 @@ function renderCompareSummary(pa, pb, d) {
     ['壁の総延長', sa.wallLength, sb.wallLength, (v) => `${v.toFixed(1)}m`],
     ['ドア', sa.doors, sb.doors, (v) => v],
     ['窓', sa.windows, sb.windows, (v) => v],
+    ...(sa.furniture + sb.furniture ? [['家具', sa.furniture, sb.furniture, (v) => `${v}点`]] : []),
   ];
   const table = document.createElement('table');
   const head = table.createTHead().insertRow();
@@ -628,8 +732,9 @@ function renderCompareSummary(pa, pb, d) {
   const moved = d.addedWalls.size - added;
   const note = document.createElement('p');
   note.className = 'changes';
-  note.textContent = d.removedWalls.size + d.addedWalls.size + d.removedOpenings.size + d.addedOpenings.size
-    ? `変更点：壁の撤去 ${removed} 本・新設 ${added} 本・移動/変更 ${moved} 本、ドア・窓の変更 ${new Set([...d.removedOpenings, ...d.addedOpenings]).size} 箇所`
+  note.textContent = d.removedWalls.size + d.addedWalls.size + d.removedOpenings.size + d.addedOpenings.size +
+    d.removedFurniture.size + d.addedFurniture.size
+    ? `変更点：${changeParts(removed, added, moved, d).join('、')}`
     : '変更点はありません（比較先の案で壁の撤去・追加などを行ってください）';
   $('#cmp-summary').replaceChildren(table, note);
 }
