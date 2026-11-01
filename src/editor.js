@@ -3,6 +3,7 @@ import {
   uid, dist, projectOnSegment, findNearestWall, snapToEndpoint, snapOrtho,
   OPENING_DEFAULTS, bounds, wallLength, polygonArea,
 } from './model.js';
+import { hitFurniture, furnitureCorners } from './furniture.js';
 
 const HIT_PX = 10; // 画面上のヒット判定半径
 const STROKE_ORTHO_DEG = 12; // なぞり描きで水平・垂直に揃える角度
@@ -143,6 +144,11 @@ export class Editor2D {
         if (dist(p, w.b) <= tol) return { kind: 'wall', id: w.id, handle: 'b' };
       }
     }
+    // 家具は内側をクリックしたときだけ（壁の近くでも家具を優先）
+    const furniture = pr.furniture ?? [];
+    for (let i = furniture.length - 1; i >= 0; i--) {
+      if (hitFurniture(furniture[i], p, pr.scale)) return { kind: 'furniture', id: furniture[i].id };
+    }
     const near = findNearestWall(pr.walls, p, tol);
     if (near) {
       const w = near.wall;
@@ -255,6 +261,9 @@ export class Editor2D {
     } else if (hit.kind === 'opening') {
       const o = pr.openings.find((x) => x.id === hit.id);
       this.drag = { kind: 'opening', opening: o, wall: pr.walls.find((w) => w.id === o.wallId) };
+    } else if (hit.kind === 'furniture') {
+      const f = pr.furniture.find((x) => x.id === hit.id);
+      this.drag = { kind: 'furniture', item: f, start: p, x: f.x, y: f.y };
     } else if (hit.kind === 'room') {
       const r = pr.rooms.find((x) => x.id === hit.id);
       this.drag = { kind: 'room', room: r, start: p, points: r.points.map((q) => ({ ...q })) };
@@ -370,6 +379,10 @@ export class Editor2D {
         } else if (d.wall) {
           d.opening.t = projectOnSegment(p, d.wall.a, d.wall.b).t;
         }
+        d.moved = true;
+      } else if (d.kind === 'furniture') {
+        d.item.x = d.x + p.x - d.start.x;
+        d.item.y = d.y + p.y - d.start.y;
         d.moved = true;
       } else if (d.kind === 'room') {
         const dx = p.x - d.start.x;
@@ -501,6 +514,8 @@ export class Editor2D {
       pr.openings = pr.openings.filter((o) => o.id !== sel.id);
     } else if (sel.kind === 'room') {
       pr.rooms = pr.rooms.filter((r) => r.id !== sel.id);
+    } else if (sel.kind === 'furniture') {
+      pr.furniture = pr.furniture.filter((f) => f.id !== sel.id);
     }
     this.hooks.changed();
     this.select(null);
@@ -547,6 +562,9 @@ export class Editor2D {
       const area = polygonArea(r.points) * pr.scale * pr.scale;
       this.label(`${r.name}  ${area.toFixed(1)}㎡ (${(area / 1.62).toFixed(1)}畳)`, c, '#1f2937', 'rgba(255,255,255,0.8)');
     }
+
+    // 家具
+    for (const f of pr.furniture ?? []) this.drawFurniture(f);
 
     // 壁
     for (const w of pr.walls) {
@@ -660,6 +678,30 @@ export class Editor2D {
         ctx.stroke();
       }
     }
+  }
+
+  drawFurniture(f) {
+    const { ctx } = this;
+    const pr = this.project;
+    const z = this.view.zoom;
+    const sel = this.isSelected('furniture', f.id);
+    const pts = furnitureCorners(f, pr.scale);
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = hexAlpha(f.color, f.type === 'rug' ? 0.45 : 0.8);
+    ctx.fill();
+    ctx.strokeStyle = sel ? '#2563eb' : 'rgba(31,41,55,0.7)';
+    ctx.lineWidth = (sel ? 3 : 1.2) / z;
+    ctx.stroke();
+    // 背面（壁に付ける側）を太線で示す
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineWidth = (sel ? 4 : 3) / z;
+    ctx.stroke();
+    // 画面上で十分な大きさがあるときだけ名前を表示
+    if (Math.min(f.w, f.d) / pr.scale * z > 28) this.label(f.name, f, '#1f2937', 'rgba(255,255,255,0.75)');
   }
 
   drawGrid() {

@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { wallSegments, bounds } from './model.js';
+import { buildFurniture3D } from './furniture3d.js';
 
 const EYE_HEIGHT = 1.6;
 
@@ -255,7 +256,20 @@ export class Viewer3D {
       }
     }
 
-    this.model.add(floors, walls, fixtures);
+    // 家具（比較ビューでは新しく置いた・動かした家具を色付け）
+    const furniture = new THREE.Group();
+    furniture.name = 'Furniture';
+    if (opts.showFurniture !== false) {
+      const fh = opts.highlightFurniture ?? new Map();
+      for (const f of project.furniture ?? []) {
+        const g = buildFurniture3D(f, { highlight: fh.get(f.id) });
+        g.position.copy(P(f));
+        g.rotation.y = (-f.rot * Math.PI) / 180;
+        furniture.add(g);
+      }
+    }
+
+    this.model.add(floors, walls, fixtures, furniture);
 
     // 影の範囲をモデルに合わせる
     const size = Math.max((b.maxX - b.minX) * s, (b.maxY - b.minY) * s, 4);

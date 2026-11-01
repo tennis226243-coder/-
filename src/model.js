@@ -1,6 +1,8 @@
 // 間取りデータモデルと幾何ユーティリティ（DOM / three.js に依存しない純粋関数）
 // 座標はすべて「画像ピクセル」単位。実寸(m)への換算は project.scale (m/px) を使う。
 
+import { normalizeFurniture } from './furniture.js';
+
 let nextId = 1;
 export const uid = (prefix) => `${prefix}${Date.now().toString(36)}${(nextId++).toString(36)}`;
 
@@ -14,6 +16,7 @@ export function createProject() {
     walls: [], // { id, a:{x,y}, b:{x,y}, thickness(m) }
     openings: [], // { id, wallId, t(0..1 中心位置), type:'door'|'window', width, height, sill (m) }
     rooms: [], // { id, name, points:[{x,y}], color }
+    furniture: [], // { id, type, name, x, y (中心 px), rot (度), w, d, h (m), color }
   };
 }
 
@@ -130,6 +133,7 @@ export function bounds(project) {
   const pts = [
     ...project.walls.flatMap((w) => [w.a, w.b]),
     ...project.rooms.flatMap((r) => r.points),
+    ...(project.furniture ?? []).map((f) => ({ x: f.x, y: f.y })),
   ];
   if (project.image) {
     pts.push({ x: 0, y: 0 }, { x: project.image.width, y: project.image.height });
@@ -209,5 +213,6 @@ function normalizeLayout(data) {
         points: r.points.map(pt),
         color: typeof r.color === 'string' ? r.color : '#d9c7a7',
       })),
+    furniture: normalizeFurniture(data.furniture),
   };
 }

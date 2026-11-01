@@ -3,9 +3,9 @@
 // project.variants には各案のスナップショットを保存する。
 import { uid, wallLength, polygonArea } from './model.js';
 
-export const LAYOUT_KEYS = ['walls', 'openings', 'rooms', 'wallHeight', 'wallThickness'];
+export const LAYOUT_KEYS = ['walls', 'openings', 'rooms', 'furniture', 'wallHeight', 'wallThickness'];
 
-const clone = (v) => JSON.parse(JSON.stringify(v));
+const clone = (v) => (v === undefined ? [] : JSON.parse(JSON.stringify(v)));
 
 /** 案として保存する部分だけを複製 */
 export function extractLayout(project) {
@@ -80,11 +80,12 @@ export function variantProject(project, id) {
 }
 
 const wallKey = (w) => [w.a.x, w.a.y, w.b.x, w.b.y, w.thickness].map((n) => Math.round(n * 10)).join(',');
+const furnitureKey = (f) => [f.type, Math.round(f.x), Math.round(f.y), f.rot, f.w, f.d, f.h, f.color].join(',');
 const openingKey = (o) => [o.wallId, Math.round(o.t * 1000), o.type, o.width, o.height, o.sill].join(',');
 
 /**
  * 2 つの案の差分。複製した案は ID を引き継ぐので、ID と形状が一致する物を「変更なし」とみなす。
- * @returns {{ removedWalls:Set, addedWalls:Set, removedOpenings:Set, addedOpenings:Set }}
+ * @returns {{ removedWalls:Set, addedWalls:Set, removedOpenings:Set, addedOpenings:Set, removedFurniture:Set, addedFurniture:Set }}
  */
 export function diffLayouts(a, b) {
   const diff = (listA, listB, key) => {
@@ -97,7 +98,12 @@ export function diffLayouts(a, b) {
   };
   const w = diff(a.walls, b.walls, wallKey);
   const o = diff(a.openings, b.openings, openingKey);
-  return { removedWalls: w.removed, addedWalls: w.added, removedOpenings: o.removed, addedOpenings: o.added };
+  const f = diff(a.furniture ?? [], b.furniture ?? [], furnitureKey);
+  return {
+    removedWalls: w.removed, addedWalls: w.added,
+    removedOpenings: o.removed, addedOpenings: o.added,
+    removedFurniture: f.removed, addedFurniture: f.added,
+  };
 }
 
 /** 比較表用の集計（m, ㎡） */
@@ -109,6 +115,7 @@ export function summarize(layout, scale) {
     doors: layout.openings.filter((o) => o.type === 'door').length,
     windows: layout.openings.filter((o) => o.type === 'window').length,
     rooms: layout.rooms.length,
+    furniture: (layout.furniture ?? []).length,
     roomList: layout.rooms.map((r) => ({ name: r.name, area: polygonArea(r.points) * scale * scale })),
     area,
   };
